@@ -1,6 +1,5 @@
 import torch
 from torch.nn import Embedding, MultiheadAttention, LayerNorm, Sequential, ModuleList, ReLU, Dropout
-from torch.nn import functional as F
 
 class SimpleTransformer(nn.Module):
     def __init__(self, dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout):
@@ -25,6 +24,8 @@ class SimpleTransformer(nn.Module):
             attention_output = attention(embeddings_output, attn_mask, need_weights=False)
             attention_output = self.dropout(attention_output)
             middle_output = layer_norm_1(embeddings_output + attention_output)
+
             feed_forward_output = feed_forward(middle_output)
             output = layer_norm2(middle_output + feed_forward_output)
+
         return output

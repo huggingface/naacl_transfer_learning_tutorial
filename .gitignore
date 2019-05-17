@@ -1,2 +1,4 @@
 .vscode
 data/
+runs/
+__pycache__

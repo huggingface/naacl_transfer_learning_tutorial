@@ -12,12 +12,13 @@ import torch
 from torch.nn.parallel import DistributedDataParallel
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
+from torch.nn import functional as F
 
 from ignite.contrib.handlers import PiecewiseLinear, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import (OptimizerParamsHandler,
                                                         OutputHandler,
                                                         TensorboardLogger)
-from ignite.engine import Engine, Events
+from ignite.engine import Engine, Events, create_supervised_trainer
 from ignite.handlers import ModelCheckpoint
 from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
 
@@ -61,10 +62,11 @@ def train():
     parser.add_argument("--num_heads", type=int, default=8, help="Number of heads")
     parser.add_argument("--num_layers", type=int, default=6, help="NUmber of layers")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout")
+    parser.add_argument("--initializer_range", type=float, default=0.02, help="Dropout")
 
     parser.add_argument("--train_batch_size", type=int, default=4, help="Batch size for training")
     parser.add_argument("--valid_batch_size", type=int, default=4, help="Batch size for validation")
-    parser.add_argument("--lr", type=float, default=6.25e-5, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--max_norm", type=float, default=1.0, help="Clipping gradient norm")
     parser.add_argument("--n_epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--eval_every", type=int, default=-1, help="Evaluate every X steps (-1 => end of epoch)")
@@ -104,8 +106,8 @@ def train():
     # Training function and trainer
     def update(engine, batch):
         model.train()
-        batch = batch.to(args.device)
-        logits, loss = model(batch)
+        batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
+        logits, loss = model(batch, labels=batch)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
         optimizer.step()

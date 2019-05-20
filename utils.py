@@ -3,6 +3,7 @@
 import logging
 import os
 import tarfile
+from tqdm import tqdm
 
 import torch
 
@@ -34,7 +35,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir=WIKITEXT_2_URL, dataset_cach
             dataset_file = cached_path(full_dataset_path)
             with open(dataset_file, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
-                dataset[split_name] = ' '.join([line.strip() for line in all_lines if len(line.strip())])
+                dataset[split_name] = [line.strip() for line in all_lines if len(line.strip())]
 
         logger.info("Tokenize and encode the dataset")
         def tokenize(obj):
@@ -42,8 +43,12 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir=WIKITEXT_2_URL, dataset_cach
                 return tokenizer.encode(obj)
             if isinstance(obj, dict):
                 return dict((n, tokenize(o)) for n, o in obj.items())
-            return list(tokenize(o) for o in obj)
+            return list(tokenize(o) for o in tqdm(obj))
         dataset = tokenize(dataset)
+
+        # Gather each split in one big list
+        for name, data in dataset.items():
+            dataset[name] = [ind for line in data for ind in line]
 
         if dataset_cache:
             logger.info("Save encoded dataset to cache at %s", dataset_cache)

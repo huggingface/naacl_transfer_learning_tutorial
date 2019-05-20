@@ -26,7 +26,7 @@ from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
 from pytorch_pretrained_bert import OpenAIGPTTokenizer
 
 from model import TransformerWithLMHead
-from utils import get_and_tokenize_dataset, average_distributed_scalar
+from utils import get_and_tokenize_dataset, average_distributed_scalar, WIKITEXT_2_URL
 
 logger = logging.getLogger(__file__)
 
@@ -56,7 +56,7 @@ def get_data_loaders(args, tokenizer):
 
 def train():
     parser = ArgumentParser()
-    parser.add_argument("--dataset_path", type=str, default="./data/wikitext-2/", help="Path or url of the dataset.")
+    parser.add_argument("--dataset_path", type=str, default=WIKITEXT_2_URL, help="Path or url to a folder with dataset ('train.txt', 'test.txt' and 'valid.txt' files).")
     parser.add_argument("--dataset_cache", type=str, default='./data/wikitext-2/dataset_cache', help="Path or url of the dataset cache")
 
     parser.add_argument("--embed_dim", type=int, default=256, help="Embeddings dim")

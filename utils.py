@@ -36,7 +36,7 @@ def download_dataset(dataset_path):
     return resolved_dataset_path
 
 
-def get_dataset(tokenizer, dataset_dir, dataset_cache=None):
+def get_and_tokenize_dataset(tokenizer, dataset_dir, dataset_cache=None):
     """ Retrieve, tokenize, encode and cache the dataset """
     if dataset_cache and os.path.isfile(dataset_cache):
         logger.info("Load encoded dataset from cache at %s", dataset_cache)

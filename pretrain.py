@@ -12,27 +12,30 @@ import torch
 from torch.nn.parallel import DistributedDataParallel
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
+from torch import nn as nn
 from torch.nn import functional as F
 
 from ignite.contrib.handlers import PiecewiseLinear, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import (OptimizerParamsHandler,
                                                         OutputHandler,
                                                         TensorboardLogger)
-from ignite.engine import Engine, Events, create_supervised_trainer
+from ignite.engine import Engine, Events, create_supervised_trainer, create_supervised_evaluator
 from ignite.handlers import ModelCheckpoint
 from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
 
 from pytorch_pretrained_bert import OpenAIGPTTokenizer
 
-from model import SimpleTransformerWithLMHead
-from utils import get_dataset, average_distributed_scalar
+from model import TransformerWithLMHead
+from utils import get_and_tokenize_dataset, average_distributed_scalar
 
 logger = logging.getLogger(__file__)
 
+WEIGHTS_NAME = 'model_checkpoint.pth'
+CONFIG_NAME = 'model_training_args.bin'
 
 def get_data_loaders(args, tokenizer):
-    """ Prepare the dataset for training and evaluation """
-    datasets = get_dataset(tokenizer, args.dataset_path, args.dataset_cache)
+    """ Prepare the dataloaders for training and evaluation """
+    datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache)
 
     logger.info("Convert to Tensor and reshape")
     for dataset_name, dataset in datasets.items():
@@ -76,10 +79,10 @@ def train():
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training (-1: not distributed)")
     args = parser.parse_args()
 
-    # logging is set to INFO (resp. WARN) for main (resp. auxiliary) process. logger.info => log main process only, logger.warning => log all processes
+    # logging is set to INFO (resp. WARN) for main (resp. auxiliary) process. logger.info => log on main process only, logger.warning => log on all processes
     logging.basicConfig(level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
     logger.warning("Running process %d", args.local_rank)  # This is a logger.warning: it will be printed by all distributed processes
-    logger.info("Arguments: %s", pformat(args))
+    logger.info("Arguments: %s", pformat(args))  # This is a logger.info: only printed on the first process
 
     # Initialize distributed training if needed
     args.distributed = (args.local_rank != -1)
@@ -90,11 +93,11 @@ def train():
 
     logger.info("Prepare tokenizer, model and optimizer")
     tokenizer = OpenAIGPTTokenizer.from_pretrained('openai-gpt')  # Let's use a pre-defined tokenizer
-    args.num_embeddings = len(tokenizer)
-    model = SimpleTransformerWithLMHead(args)
-    logger.info("Model has %s parameters", sum(p.numel() for p in model.parameters()))
+    args.num_embeddings = len(tokenizer)  # We need this to create the model at next line (number of embeddings to use)
+    model = TransformerWithLMHead(args)
     model.to(args.device)
     optimizer = Adam(model.parameters(), lr=args.lr)
+    logger.info("Model has %s parameters", sum(p.numel() for p in model.parameters()))
 
     # Prepare model for distributed training if needed
     if args.distributed:
@@ -120,20 +123,18 @@ def train():
         model.eval()
         with torch.no_grad():
             logger.debug(tokenizer.decode([0]))
-            batch = tuple(input_tensor.to(args.device) for input_tensor in batch)
-            input_ids, mc_token_ids, lm_labels, mc_labels, token_type_ids = batch
-            model_outputs = model(input_ids, mc_token_ids, token_type_ids=token_type_ids)
-            lm_logits, mc_logits = model_outputs[0], model_outputs[1]  # So we can also use GPT2 outputs
-            lm_logits_flat_shifted = lm_logits[..., :-1, :].contiguous().view(-1, lm_logits.size(-1))
-            lm_labels_flat_shifted = lm_labels[..., 1:].contiguous().view(-1)
-            return (lm_logits_flat_shifted, mc_logits), (lm_labels_flat_shifted, mc_labels)
+            batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
+            logits = model(batch)
+            shift_logits = logits[:-1].view(-1, shift_logits.size(-1))
+            shift_labels = labels[1:].view(-1)
+            return shift_logits, shift_labels
     evaluator = Engine(inference)
 
-    # Attach evaluation to trainer: we evaluate when we start the training and at the end of each epoch
+    # Attach evaluation to trainer: we evaluate at the end of each epoch and every 'eval_every' iterations if needed
     trainer.add_event_handler(Events.EPOCH_COMPLETED, lambda _: evaluator.run(val_loader))
     if args.eval_every > 0:
         trainer.add_event_handler(Events.ITERATION_COMPLETED,
-            lambda e: evaluator.run(val_loader) if e.state.iteration % args.eval_every == 0 else None)
+                lambda engine: evaluator.run(val_loader) if engine.state.iteration % args.eval_every == 0 else None)
     if args.n_epochs < 1:
         trainer.add_event_handler(Events.COMPLETED, lambda _: evaluator.run(val_loader))
 
@@ -142,21 +143,19 @@ def train():
         trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: train_sampler.set_epoch(engine.state.epoch))
         evaluator.add_event_handler(Events.EPOCH_STARTED, lambda engine: valid_sampler.set_epoch(engine.state.epoch))
 
-    # Linearly decrease the learning rate from lr to zero
+    # Learning rate schedule: linearly decrease the learning rate from lr to zero
     scheduler = PiecewiseLinear(optimizer, "lr", [(0, args.lr), (args.n_epochs * len(train_loader), 0.0)])
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
-    # Prepare metrics - note how we compute distributed metrics 
+    # Prepare metrics - note how we average distributed metrics using average_distributed_scalar
     RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
-    metrics = {"nll": Loss(torch.nn.CrossEntropyLoss(ignore_index=-1), output_transform=lambda x: (x[0][0], x[1][0])),
-               "accuracy": Accuracy(output_transform=lambda x: (x[0][1], x[1][1]))}
-    metrics.update({"average_nll": MetricsLambda(average_distributed_scalar, metrics["nll"], args),
-                    "average_accuracy": MetricsLambda(average_distributed_scalar, metrics["accuracy"], args)})
+    metrics = {"nll": Loss(torch.nn.CrossEntropyLoss(ignore_index=-1), output_transform=lambda x: (x[0][0], x[1][0]))}
+    metrics.update({"average_nll": MetricsLambda(average_distributed_scalar, metrics["nll"], args)})
     metrics["average_ppl"] = MetricsLambda(math.exp, metrics["average_nll"])
     for name, metric in metrics.items():
         metric.attach(evaluator, name)
 
-    # On the main process: add progress bar, tensorboard, checkpoints and save model, configuration and tokenizer before we start to train
+    # On the main process: add progress bar, tensorboard, checkpoints and save model and configuration before we start to train
     if args.local_rank in [-1, 0]:
         pbar = ProgressBar(persist=True)
         pbar.attach(trainer, metric_names=["loss"])
@@ -166,7 +165,7 @@ def train():
         tb_logger.attach(trainer, log_handler=OutputHandler(tag="training", metric_names=["loss"]), event_name=Events.ITERATION_COMPLETED)
         tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer), event_name=Events.ITERATION_STARTED)
 
-        @evaluator.on(Events.COMPLETED)
+        @evaluator.on(Events.COMPLETED)  # Log evaluator metrics on tensorboard
         def tb_log_metrics(engine):
             for name in metrics.keys():
                 tb_logger.writer.add_scalar(name, engine.state.metrics[name], trainer.state.iteration)
@@ -174,12 +173,12 @@ def train():
         checkpoint_handler = ModelCheckpoint(tb_logger.writer.log_dir, 'checkpoint', save_interval=1, n_saved=3)
         trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'mymodel': getattr(model, 'module', model)})  # "getattr" take care of distributed encapsulation
 
-        torch.save(args, tb_logger.writer.log_dir + '/model_training_args.bin')
+        torch.save(args, os.path.join(tb_logger.writer.log_dir, CONFIG_NAME))
 
     # Run the training
     trainer.run(train_loader, max_epochs=args.n_epochs)
 
-    # On the main process: close tensorboard logger and rename the last checkpoint (for easy re-loading with OpenAIGPTModel.from_pretrained method)
+    # On the main process: close tensorboard logger and rename the last checkpoint for easy re-loading
     if args.local_rank in [-1, 0] and args.n_epochs > 0:
         os.rename(checkpoint_handler._saved[-1][1][-1], os.path.join(tb_logger.writer.log_dir, WEIGHTS_NAME))  # TODO: PR in ignite to have better access to saved file paths (cleaner)
         tb_logger.close()

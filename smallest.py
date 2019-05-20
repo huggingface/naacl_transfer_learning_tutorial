@@ -24,7 +24,7 @@ model.to(args.device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 # Download and tokenize wikitext-2 training dataset
-dataset_file = cached_path("https://s3.amazonaws.com/datasets.huggingface.co/wikitext-2/test.txt")
+dataset_file = cached_path("https://s3.amazonaws.com/datasets.huggingface.co/wikitext-2/train.txt")
 with open(dataset_file, "r", encoding="utf-8") as f:
     dataset = f.readlines()
 dataset = list(tokenizer.encode(line.strip()) for line in tqdm(dataset) if len(line.strip()))

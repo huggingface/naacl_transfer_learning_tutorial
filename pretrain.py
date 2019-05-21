@@ -25,7 +25,7 @@ from ignite.engine import Engine, Events, create_supervised_trainer, create_supe
 from ignite.handlers import ModelCheckpoint
 from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
 
-from pytorch_pretrained_bert import OpenAIGPTTokenizer
+from pytorch_pretrained_bert import BertTokenizer
 
 from model import TransformerWithLMHead
 from utils import get_and_tokenize_dataset, average_distributed_scalar, WIKITEXT_2_URL
@@ -109,7 +109,7 @@ def train():
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
     logger.info("Prepare tokenizer, model and optimizer")
-    tokenizer = OpenAIGPTTokenizer.from_pretrained('openai-gpt')  # Let's use a pre-defined tokenizer
+    tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)  # Let's use a pre-defined tokenizer
     args.num_embeddings = len(tokenizer)  # We need this to create the model at next line (number of embeddings to use)
     model = TransformerWithLMHead(args)
     model.to(args.device)

@@ -69,17 +69,14 @@ class TransformerWithLMHead(nn.Module):
 
     def init_weights(self, module):
         """ Initialize the weights """
-        if isinstance(module, (nn.Linear, nn.Embedding)):
+        if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, nn.MultiheadAttention):
             module.out_proj.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
             module.in_proj_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
             module.out_proj.bias.data.zero_()
             module.in_proj_bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-        if isinstance(module, nn.Linear) and module.bias is not None:
+        if isinstance(module, (nn.Linear, nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
     def forward(self, x, labels=None):

@@ -165,9 +165,10 @@ def train():
         evaluator.add_event_handler(Events.EPOCH_STARTED, lambda engine: valid_sampler.set_epoch(engine.state.epoch))
 
     # Learning rate schedule: linearly warm-up to lr and then decrease the learning rate to zero
-    exp_scheduler = LRScheduler(lr_scheduler=ExponentialLR(optimizer=optimizer, gamma=args.lr_gamma))
-    scheduler = create_lr_scheduler_with_warmup(exp_scheduler, warmup_start_value=0.0, warmup_end_value=args.lr,
-                                                warmup_duration=int(args.n_epochs * len(train_loader) * args.n_warmup))
+    cos_scheduler = CosineAnnealingScheduler(optimizer, 'lr', args.lr, 0.0, len(train_loader) / args.train_batch_size * args.n_epochs)
+    # exp_scheduler = LRScheduler(lr_scheduler=ExponentialLR(optimizer=optimizer, gamma=args.lr_gamma))
+    scheduler = create_lr_scheduler_with_warmup(cos_scheduler, warmup_start_value=0.0, warmup_end_value=args.lr,
+                    warmup_duration=int(len(train_loader) / args.train_batch_size * args.n_epochs * args.n_warmup))
     # scheduler = PiecewiseLinear(optimizer, "lr", [(0, 0.0), (int(args.n_epochs * len(train_loader) * args.n_warmup), args.lr), (args.n_epochs * len(train_loader), 0.0)])
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 

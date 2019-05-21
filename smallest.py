@@ -12,9 +12,11 @@ from model import TransformerWithLMHead
 
 Config = namedtuple('Config',
     field_names="embed_dim, hidden_dim, num_max_positions, num_embeddings, num_heads, num_layers," 
-                "dropout, initializer_range, batch_size, lr, max_norm, n_epochs, n_warmup, device",
+                "dropout, initializer_range, batch_size, lr, max_norm, n_epochs, n_warmup, device"
+                "gradient_accumulation_steps",
     defaults   =[ 256     , 1024      , 256              , 50000         , 8        , 6         ,
-                 0.1    , 0.02             , 4         , 1e-3, 1     , 10      , 1000    , "cuda"])
+                 0.1    , 0.02             , 32         , 1e-3, 1     , 10      , 1000    , "cuda",
+                 8])  # You need a 
 
 # Load a pre-defined BPE tokenizer, create config and model
 tokenizer = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
@@ -40,10 +42,12 @@ def update(engine, batch):
     model.train()
     batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
     logits, loss = model(batch, labels=batch)
+    loss = loss / args.gradient_accumulation_steps
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
-    optimizer.step()
-    optimizer.zero_grad()
+    if engine.state.iteration % args.gradient_accumulation_steps == 0:
+        optimizer.step()
+        optimizer.zero_grad()
     return loss.item()
 trainer = Engine(update)
 

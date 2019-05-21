@@ -56,8 +56,8 @@ def get_data_loaders(args, tokenizer):
 
 def train():
     parser = ArgumentParser()
-    parser.add_argument("--dataset_path", type=str, default=WIKITEXT_2_URL, help="Path or url to a folder with dataset ('train.txt', 'test.txt' and 'valid.txt' files).")
-    parser.add_argument("--dataset_cache", type=str, default='./data/wikitext-2/dataset_cache', help="Path or url of the dataset cache")
+    parser.add_argument("--dataset_path", type=str, default='wikitext-103', help="One of ('wikitext-103', 'wikitext-2') or a dict of splits paths.")
+    parser.add_argument("--dataset_cache", type=str, default='./data/dataset_cache', help="Path or url of the dataset cache")
 
     parser.add_argument("--embed_dim", type=int, default=256, help="Embeddings dim")
     parser.add_argument("--hidden_dim", type=int, default=1024, help="Hidden dimension")

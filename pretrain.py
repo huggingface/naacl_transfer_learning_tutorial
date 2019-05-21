@@ -87,7 +87,7 @@ def train():
     parser.add_argument("--max_norm", type=float, default=0.25, help="Clipping gradient norm")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay")
     parser.add_argument("--n_epochs", type=int, default=200, help="Number of training epochs")
-    parser.add_argument("--n_warmup", type=float, default=0.001, help="Ratio of warmup iterations to total training")
+    parser.add_argument("--n_warmup", type=float, default=1000, help="Number of warmup iterations")
     parser.add_argument("--eval_every", type=int, default=-1, help="Evaluate every X steps (-1 => end of epoch)")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Accumulate gradient")
 
@@ -167,8 +167,7 @@ def train():
     # Learning rate schedule: linearly warm-up to lr and then decrease the learning rate to zero
     cos_scheduler = CosineAnnealingScheduler(optimizer, 'lr', args.lr, 0.0, len(train_loader) / args.train_batch_size * args.n_epochs)
     # exp_scheduler = LRScheduler(lr_scheduler=ExponentialLR(optimizer=optimizer, gamma=args.lr_gamma))
-    scheduler = create_lr_scheduler_with_warmup(cos_scheduler, warmup_start_value=0.0, warmup_end_value=args.lr,
-                    warmup_duration=int(len(train_loader) / args.train_batch_size * args.n_epochs * args.n_warmup))
+    scheduler = create_lr_scheduler_with_warmup(cos_scheduler, 0.0, args.lr, args.n_warmup)
     # scheduler = PiecewiseLinear(optimizer, "lr", [(0, 0.0), (int(args.n_epochs * len(train_loader) * args.n_warmup), args.lr), (args.n_epochs * len(train_loader), 0.0)])
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 

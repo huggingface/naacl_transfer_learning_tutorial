@@ -17,11 +17,9 @@ from torch import nn as nn
 from torch.nn import functional as F
 from torch.optim.lr_scheduler import ExponentialLR
 
-from ignite.contrib.handlers import PiecewiseLinear, ProgressBar, LRScheduler, ConcatScheduler, CosineAnnealingScheduler, create_lr_scheduler_with_warmup
-from ignite.contrib.handlers.tensorboard_logger import (OptimizerParamsHandler,
-                                                        OutputHandler,
-                                                        TensorboardLogger)
-from ignite.engine import Engine, Events, create_supervised_trainer, create_supervised_evaluator
+from ignite.contrib.handlers import ProgressBar, CosineAnnealingScheduler, create_lr_scheduler_with_warmup
+from ignite.contrib.handlers.tensorboard_logger import OptimizerParamsHandler, OutputHandler, TensorboardLogger
+from ignite.engine import Engine, Events
 from ignite.handlers import ModelCheckpoint
 from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
 
@@ -34,16 +32,6 @@ logger = logging.getLogger(__file__)
 
 WEIGHTS_NAME = 'model_checkpoint.pth'
 CONFIG_NAME = 'model_training_args.bin'
-
-# def randomize_dataset_blocks(args, dataloader):
-#     """ Add some diversity in the dataset at each epoch to reduce overfitting """
-#     shift = random.randrange(1, args.num_max_positions)
-#     seq_length = random.choice((int(args.num_max_positions / 2), args.num_max_positions))
-#     dataset = dataloader.dataset.view(-1)
-#     out_dataset = torch.empty_like(dataset)
-#     out_dataset[shift:] = dataset[:-shift]
-#     out_dataset[:shift] = dataset[-shift:]
-#     dataloader.dataset = out_dataset.view(-1, seq_length)
 
 def get_data_loaders(args, tokenizer):
     """ Prepare the dataloaders for training and evaluation """
@@ -80,10 +68,9 @@ def train():
     parser.add_argument("--initializer_range", type=float, default=0.02, help="Dropout")
     parser.add_argument("--sinusoidal_embeddings", action="store_true", help="Use sinusoidal embeddings instead of learned ones")
 
-    parser.add_argument("--train_batch_size", type=int, default=1, help="Batch size for training")
+    parser.add_argument("--train_batch_size", type=int, default=8, help="Batch size for training")
     parser.add_argument("--valid_batch_size", type=int, default=8, help="Batch size for validation")
     parser.add_argument("--lr", type=float, default=2.5e-4, help="Learning rate")
-    # parser.add_argument("--lr_gamma", type=float, default=0.9999, help="Learning rate exponential decrease coefficient")
     parser.add_argument("--max_norm", type=float, default=0.25, help="Clipping gradient norm")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay")
     parser.add_argument("--n_epochs", type=int, default=200, help="Number of training epochs")
@@ -92,7 +79,6 @@ def train():
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Accumulate gradient")
 
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda or cpu)")
-    parser.add_argument("--fp16", type=str, default="", help="Set to O0, O1, O2 or O3 for fp16 training (see apex documentation)")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training (-1: not distributed)")
     args = parser.parse_args()
 
@@ -156,19 +142,14 @@ def train():
     if args.n_epochs < 1:
         trainer.add_event_handler(Events.COMPLETED, lambda _: evaluator.run(val_loader))
 
-    # Randomize a bit on each epoch
-    # trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: randomize_dataset_blocks(args, train_loader))
-
     # Make sure distributed data samplers split the dataset nicely between the distributed processes
     if args.distributed:
         trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: train_sampler.set_epoch(engine.state.epoch))
         evaluator.add_event_handler(Events.EPOCH_STARTED, lambda engine: valid_sampler.set_epoch(engine.state.epoch))
 
-    # Learning rate schedule: linearly warm-up to lr and then decrease the learning rate to zero
-    cos_scheduler = CosineAnnealingScheduler(optimizer, 'lr', args.lr, 0.0, len(train_loader) / args.train_batch_size * args.n_epochs)
-    # exp_scheduler = LRScheduler(lr_scheduler=ExponentialLR(optimizer=optimizer, gamma=args.lr_gamma))
+    # Learning rate schedule: linearly warm-up to lr and then decrease the learning rate to zero with cosine schedule
+    cos_scheduler = CosineAnnealingScheduler(optimizer, 'lr', args.lr, 0.0, len(train_loader) * args.n_epochs)
     scheduler = create_lr_scheduler_with_warmup(cos_scheduler, 0.0, args.lr, args.n_warmup)
-    # scheduler = PiecewiseLinear(optimizer, "lr", [(0, 0.0), (int(args.n_epochs * len(train_loader) * args.n_warmup), args.lr), (args.n_epochs * len(train_loader), 0.0)])
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
     # Prepare metrics - note how we average distributed metrics using average_distributed_scalar

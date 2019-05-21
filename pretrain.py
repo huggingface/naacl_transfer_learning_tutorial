@@ -2,6 +2,7 @@
 # All rights reserved. This source code is licensed under the BSD-style license found in the LICENSE file in the root directory of this source tree.
 import logging
 import math
+import random
 import os
 from argparse import ArgumentParser
 from collections import defaultdict
@@ -14,8 +15,9 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 from torch import nn as nn
 from torch.nn import functional as F
+from torch.optim.lr_scheduler import ExponentialLR
 
-from ignite.contrib.handlers import PiecewiseLinear, ProgressBar
+from ignite.contrib.handlers import PiecewiseLinear, ProgressBar, LRScheduler, ConcatScheduler, create_lr_scheduler_with_warmup
 from ignite.contrib.handlers.tensorboard_logger import (OptimizerParamsHandler,
                                                         OutputHandler,
                                                         TensorboardLogger)
@@ -33,15 +35,25 @@ logger = logging.getLogger(__file__)
 WEIGHTS_NAME = 'model_checkpoint.pth'
 CONFIG_NAME = 'model_training_args.bin'
 
+def randomize_dataset_blocks(args, dataloader):
+    """ Add some diversity in the dataset at each epoch to reduce overfitting """
+    shift = random.randrange(1, args.num_max_positions)
+    seq_length = random.choice((int(args.num_max_positions / 2), args.num_max_positions))
+    dataset = dataloader.dataset.view(-1)
+    out_dataset = torch.empty_like(dataset)
+    out_dataset[shift:] = dataset[:-shift]
+    out_dataset[:shift] = dataset[-shift:]
+    dataloader.dataset = out_dataset.view(-1, seq_length)
+
 def get_data_loaders(args, tokenizer):
     """ Prepare the dataloaders for training and evaluation """
     datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache)
 
     logger.info("Convert to Tensor and reshape")
-    for dataset_name, dataset in datasets.items():
-        tensor = torch.tensor(dataset, dtype=torch.long)
+    for split_name in ['test', 'train', 'valid']:
+        tensor = torch.tensor(datasets[split_name], dtype=torch.long)
         num_sequences = (tensor.size(0) // args.num_max_positions) * args.num_max_positions
-        datasets[dataset_name] = tensor.narrow(0, 0, num_sequences).view(-1, args.num_max_positions)
+        datasets[split_name] = tensor.narrow(0, 0, num_sequences).view(-1, args.num_max_positions)
 
     logger.info("Build train and validation dataloaders")
     train_sampler = torch.utils.data.distributed.DistributedSampler(datasets['train']) if args.distributed else None
@@ -51,13 +63,13 @@ def get_data_loaders(args, tokenizer):
 
     logger.info("Train dataset (Batch, Seq length): {}".format(datasets['train'].shape))
     logger.info("Valid dataset (Batch, Seq length): {}".format(datasets['valid'].shape))
-    return train_loader, valid_loader, train_sampler, valid_sampler
+    return train_loader, valid_loader, train_sampler, valid_sampler, datasets['train_num_words'], datasets['valid_num_words']
 
 
 def train():
     parser = ArgumentParser()
-    parser.add_argument("--dataset_path", type=str, default=WIKITEXT_2_URL, help="Path or url to a folder with dataset ('train.txt', 'test.txt' and 'valid.txt' files).")
-    parser.add_argument("--dataset_cache", type=str, default='./data/wikitext-2/dataset_cache', help="Path or url of the dataset cache")
+    parser.add_argument("--dataset_path", type=str, default='wikitext-103', help="One of ('wikitext-103', 'wikitext-2') or a dict of splits paths.")
+    parser.add_argument("--dataset_cache", type=str, default='./dataset_cache', help="Path or url of the dataset cache")
 
     parser.add_argument("--embed_dim", type=int, default=256, help="Embeddings dim")
     parser.add_argument("--hidden_dim", type=int, default=1024, help="Hidden dimension")
@@ -66,13 +78,18 @@ def train():
     parser.add_argument("--num_layers", type=int, default=6, help="NUmber of layers")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout")
     parser.add_argument("--initializer_range", type=float, default=0.02, help="Dropout")
+    parser.add_argument("--sinusoidal_embeddings", action="store_true", help="Use sinusoidal embeddings instead of learned ones")
 
-    parser.add_argument("--train_batch_size", type=int, default=4, help="Batch size for training")
-    parser.add_argument("--valid_batch_size", type=int, default=4, help="Batch size for validation")
+    parser.add_argument("--train_batch_size", type=int, default=1, help="Batch size for training")
+    parser.add_argument("--valid_batch_size", type=int, default=8, help="Batch size for validation")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--lr_gamma", type=float, default=0.9999, help="Learning rate exponential decrease coefficient")
     parser.add_argument("--max_norm", type=float, default=1.0, help="Clipping gradient norm")
-    parser.add_argument("--n_epochs", type=int, default=3, help="Number of training epochs")
+    parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay")
+    parser.add_argument("--n_epochs", type=int, default=200, help="Number of training epochs")
+    parser.add_argument("--n_warmup", type=float, default=0.1, help="Ratio of warmup iterations to total training")
     parser.add_argument("--eval_every", type=int, default=-1, help="Evaluate every X steps (-1 => end of epoch)")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Accumulate gradient")
 
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda or cpu)")
     parser.add_argument("--fp16", type=str, default="", help="Set to O0, O1, O2 or O3 for fp16 training (see apex documentation)")
@@ -96,25 +113,27 @@ def train():
     args.num_embeddings = len(tokenizer)  # We need this to create the model at next line (number of embeddings to use)
     model = TransformerWithLMHead(args)
     model.to(args.device)
-    optimizer = Adam(model.parameters(), lr=args.lr)
-    logger.info("Model has %s parameters", sum(p.numel() for p in model.parameters()))
+    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    logger.info("Model has %s parameters", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     # Prepare model for distributed training if needed
     if args.distributed:
         model = DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
 
     logger.info("Prepare datasets")
-    train_loader, val_loader, train_sampler, valid_sampler = get_data_loaders(args, tokenizer)
+    train_loader, val_loader, train_sampler, valid_sampler, train_num_words, valid_num_words = get_data_loaders(args, tokenizer)
 
     # Training function and trainer
     def update(engine, batch):
         model.train()
         batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
         logits, loss = model(batch, labels=batch)
+        loss = loss / args.gradient_accumulation_steps
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
-        optimizer.step()
-        optimizer.zero_grad()
+        if engine.state.iteration % args.gradient_accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
         return loss.item()
     trainer = Engine(update)
 
@@ -122,11 +141,10 @@ def train():
     def inference(engine, batch):
         model.eval()
         with torch.no_grad():
-            logger.debug(tokenizer.decode([0]))
             batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
             logits = model(batch)
-            shift_logits = logits[:-1].view(-1, shift_logits.size(-1))
-            shift_labels = labels[1:].view(-1)
+            shift_logits = logits[:-1].view(-1, logits.size(-1))
+            shift_labels = batch[1:].view(-1)
             return shift_logits, shift_labels
     evaluator = Engine(inference)
 
@@ -138,20 +156,27 @@ def train():
     if args.n_epochs < 1:
         trainer.add_event_handler(Events.COMPLETED, lambda _: evaluator.run(val_loader))
 
+    # Randomize a bit on each epoch
+    trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: randomize_dataset_blocks(args, train_loader))
+
     # Make sure distributed data samplers split the dataset nicely between the distributed processes
     if args.distributed:
         trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: train_sampler.set_epoch(engine.state.epoch))
         evaluator.add_event_handler(Events.EPOCH_STARTED, lambda engine: valid_sampler.set_epoch(engine.state.epoch))
 
-    # Learning rate schedule: linearly decrease the learning rate from lr to zero
-    scheduler = PiecewiseLinear(optimizer, "lr", [(0, args.lr), (args.n_epochs * len(train_loader), 0.0)])
+    # Learning rate schedule: linearly warm-up to lr and then decrease the learning rate to zero
+    exp_scheduler = LRScheduler(lr_scheduler=ExponentialLR(optimizer=optimizer, gamma=args.lr_gamma))
+    scheduler = create_lr_scheduler_with_warmup(exp_scheduler, warmup_start_value=0.0, warmup_end_value=args.lr,
+                                                warmup_duration=int(args.n_epochs * len(train_loader) * args.n_warmup))
+    # scheduler = PiecewiseLinear(optimizer, "lr", [(0, 0.0), (int(args.n_epochs * len(train_loader) * args.n_warmup), args.lr), (args.n_epochs * len(train_loader), 0.0)])
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
     # Prepare metrics - note how we average distributed metrics using average_distributed_scalar
     RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
-    metrics = {"nll": Loss(torch.nn.CrossEntropyLoss(ignore_index=-1), output_transform=lambda x: (x[0][0], x[1][0]))}
+    metrics = {"nll": Loss(torch.nn.CrossEntropyLoss(ignore_index=-1))}
     metrics.update({"average_nll": MetricsLambda(average_distributed_scalar, metrics["nll"], args)})
     metrics["average_ppl"] = MetricsLambda(math.exp, metrics["average_nll"])
+    metrics["average_word_ppl"] = MetricsLambda(lambda x: math.exp(x * val_loader.dataset.numel() / valid_num_words), metrics["average_nll"])
     for name, metric in metrics.items():
         metric.attach(evaluator, name)
 

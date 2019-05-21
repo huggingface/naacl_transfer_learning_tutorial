@@ -55,8 +55,9 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
             return list(encode(o) for o in tqdm(obj))
         encoded_dataset = encode(dataset)
 
-        # Add the number of words
+        # Add the number of words and gether in one list
         for split_name in ['train', 'valid']:
+            encoded_dataset[split_name] = [ind for line in encoded_dataset[split_name] for ind in line]
             encoded_dataset[split_name + '_num_words'] = [ind for line in dataset[split_name] for ind in line]
 
         if dataset_cache:

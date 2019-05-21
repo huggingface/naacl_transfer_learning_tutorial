@@ -28,7 +28,7 @@ from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
 from pytorch_pretrained_bert import BertTokenizer
 
 from model import TransformerWithLMHead
-from utils import get_and_tokenize_dataset, average_distributed_scalar, WIKITEXT_2_URL
+from utils import get_and_tokenize_dataset, average_distributed_scalar
 
 logger = logging.getLogger(__file__)
 
@@ -68,7 +68,7 @@ def get_data_loaders(args, tokenizer):
 
 def train():
     parser = ArgumentParser()
-    parser.add_argument("--dataset_path", type=str, default='wikitext-103', help="One of ('wikitext-103', 'wikitext-2') or a dict of splits paths.")
+    parser.add_argument("--dataset_path", type=str, default='wikitext-2', help="One of ('wikitext-103', 'wikitext-2') or a dict of splits paths.")
     parser.add_argument("--dataset_cache", type=str, default='./dataset_cache', help="Path or url of the dataset cache")
 
     parser.add_argument("--embed_dim", type=int, default=256, help="Embeddings dim")
@@ -110,7 +110,7 @@ def train():
 
     logger.info("Prepare tokenizer, model and optimizer")
     tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)  # Let's use a pre-defined tokenizer
-    args.num_embeddings = len(tokenizer)  # We need this to create the model at next line (number of embeddings to use)
+    args.num_embeddings = len(tokenizer.vocab)  # We need this to create the model at next line (number of embeddings to use)
     model = TransformerWithLMHead(args)
     model.to(args.device)
     optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

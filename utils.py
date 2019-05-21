@@ -30,33 +30,37 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
     """ Retrieve, tokenize, encode and cache the dataset """
     if dataset_cache and os.path.isfile(dataset_cache):
         logger.info("Load encoded dataset from cache at %s", dataset_cache)
-        dataset = torch.load(dataset_cache)
+        encoded_dataset = torch.load(dataset_cache)
     else:
         if dataset_dir in DATASETS_URL:
             dataset_dir = DATASETS_URL[dataset_dir]
+        else:
+            dataset_dir = {'train': os.path.join(dataset_dir, 'train.txt'), 'valid': os.path.join(dataset_dir, 'valid.txt')}
         logger.info("Download dataset from %s", dataset_dir)
         dataset = {}
-        for split_name, dataset_path in dataset_dir.items():
-            dataset_file = cached_path(full_dataset_path)
+        for split_name in ['train', 'valid']:
+            dataset_file = cached_path(dataset_dir[split_name])
             with open(dataset_file, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
-                dataset[split_name] = [line.strip() for line in all_lines if len(line.strip())]
+                dataset[split_name] = [idx for line in all_lines \
+                                       for idx in line.strip(' ').replace('\n', '[SEP]').replace('<unk>', '[UNK]').split(' ')\
+                                       if len(line.strip(' '))]
 
         logger.info("Tokenize and encode the dataset")
-        def tokenize(obj):
+        def encode(obj):
             if isinstance(obj, str):
-                return tokenizer.encode(obj)
+                return tokenizer.convert_tokens_to_ids(tokenizer.tokenize(obj))
             if isinstance(obj, dict):
-                return dict((n, tokenize(o)) for n, o in obj.items())
-            return list(tokenize(o) for o in tqdm(obj))
-        dataset = tokenize(dataset)
+                return dict((n, encode(o)) for n, o in obj.items())
+            return list(encode(o) for o in tqdm(obj))
+        encoded_dataset = encode(dataset)
 
-        # Gather each split in one big list
-        for name, data in dataset.items():
-            dataset[name] = [ind for line in data for ind in line]
+        # Add the number of words
+        for split_name in ['train', 'valid']:
+            encoded_dataset[split_name + '_num_words'] = [ind for line in dataset[split_name] for ind in line]
 
         if dataset_cache:
             logger.info("Save encoded dataset to cache at %s", dataset_cache)
-            torch.save(dataset, dataset_cache)
+            torch.save(encoded_dataset, dataset_cache)
 
-    return dataset
+    return encoded_dataset

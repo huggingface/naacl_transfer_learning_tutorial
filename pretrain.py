@@ -66,7 +66,6 @@ def train():
     parser.add_argument("--num_layers", type=int, default=16, help="NUmber of layers")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout")
     parser.add_argument("--initializer_range", type=float, default=0.02, help="Dropout")
-    parser.add_argument("--sinusoidal_embeddings", action="store_true", help="Use sinusoidal embeddings instead of learned ones")
 
     parser.add_argument("--train_batch_size", type=int, default=8, help="Batch size for training")
     parser.add_argument("--valid_batch_size", type=int, default=8, help="Batch size for validation")

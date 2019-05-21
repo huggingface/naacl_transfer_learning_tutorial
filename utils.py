@@ -12,7 +12,12 @@ DATASETS_URL = {
     'wikitext-2':   {'train': "https://s3.amazonaws.com/datasets.huggingface.co/wikitext-2/train.txt",
                      'valid': "https://s3.amazonaws.com/datasets.huggingface.co/wikitext-2/valid.txt"},
     'wikitext-103': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/wikitext-103/wiki.train.tokens",
-                     'valid': "https://s3.amazonaws.com/datasets.huggingface.co/wikitext-103/wiki.valid.tokens"}
+                     'valid': "https://s3.amazonaws.com/datasets.huggingface.co/wikitext-103/wiki.valid.tokens"},
+    'imdb':         {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.txt",
+                     'valid': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/valid.txt",
+                     'labels': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.labels.txt",
+                                'valid': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/valid.labels.txt",
+                                'convert': {'pos': 0, 'neg': 1}}},
     }
 
 logger = logging.getLogger(__file__)
@@ -26,7 +31,7 @@ def average_distributed_scalar(scalar, args):
     return scalar_t.item()
 
 
-def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cache=None):
+def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cache=None, with_labels=False):
     """ Retrieve, tokenize, encode and cache the dataset """
     if dataset_cache and os.path.isfile(dataset_cache):
         logger.info("Load encoded dataset from cache at %s", dataset_cache)
@@ -35,7 +40,8 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
         if dataset_dir in DATASETS_URL:
             dataset_dir = DATASETS_URL[dataset_dir]
         else:
-            dataset_dir = {'train': os.path.join(dataset_dir, 'train.txt'), 'valid': os.path.join(dataset_dir, 'valid.txt')}
+            dataset_dir = {'train': os.path.join(dataset_dir, 'train.txt'),
+                           'valid': os.path.join(dataset_dir, 'valid.txt')}
         logger.info("Download dataset from %s", dataset_dir)
         dataset = {}
         for split_name in ['train', 'valid']:
@@ -43,8 +49,14 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
             with open(dataset_file, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
                 dataset[split_name] = [idx for line in tqdm(all_lines) \
-                                       for idx in line.strip(' ').replace('\n', '[SEP]').replace('<unk>', '[UNK]').split(' ')\
-                                       if len(line.strip(' '))]
+                    for idx in line.strip(' ').replace('\n', '[SEP]').replace('<unk>', '[UNK]').split(' ')]
+        labels = {}
+        if with_labels:
+            for split_name in ['train', 'valid']:
+                dataset_file = cached_path(dataset_dir['labels'][split_name])
+                with open(dataset_file, "r", encoding="utf-8") as f:
+                    all_lines = f.readlines()
+                    labels[split_name] = [dataset_dir['labels']['convert'][line] for line in tqdm(all_lines)]
 
         logger.info("Tokenize and encode the dataset")
         def encode(obj):
@@ -55,10 +67,12 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
             return list(encode(o) for o in tqdm(obj))
         encoded_dataset = encode(dataset)
 
-        # Add the number of words and gether in one list
+        # Add the number of words and gather in one list
         for split_name in ['train', 'valid']:
             encoded_dataset[split_name] = [ind for line in encoded_dataset[split_name] for ind in line]
             encoded_dataset[split_name + '_num_words'] = len(dataset[split_name])
+            if with_labels:
+                encoded_dataset[split_name + '_labels'] = labels[split_name]
 
         if dataset_cache:
             logger.info("Save encoded dataset to cache at %s", dataset_cache)

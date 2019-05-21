@@ -17,7 +17,7 @@ from torch import nn as nn
 from torch.nn import functional as F
 from torch.optim.lr_scheduler import ExponentialLR
 
-from ignite.contrib.handlers import PiecewiseLinear, ProgressBar, LRScheduler, ConcatScheduler, create_lr_scheduler_with_warmup
+from ignite.contrib.handlers import PiecewiseLinear, ProgressBar, LRScheduler, ConcatScheduler, CosineAnnealingScheduler, create_lr_scheduler_with_warmup
 from ignite.contrib.handlers.tensorboard_logger import (OptimizerParamsHandler,
                                                         OutputHandler,
                                                         TensorboardLogger)

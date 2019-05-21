@@ -35,15 +35,15 @@ logger = logging.getLogger(__file__)
 WEIGHTS_NAME = 'model_checkpoint.pth'
 CONFIG_NAME = 'model_training_args.bin'
 
-def randomize_dataset_blocks(args, dataloader):
-    """ Add some diversity in the dataset at each epoch to reduce overfitting """
-    shift = random.randrange(1, args.num_max_positions)
-    seq_length = random.choice((int(args.num_max_positions / 2), args.num_max_positions))
-    dataset = dataloader.dataset.view(-1)
-    out_dataset = torch.empty_like(dataset)
-    out_dataset[shift:] = dataset[:-shift]
-    out_dataset[:shift] = dataset[-shift:]
-    dataloader.dataset = out_dataset.view(-1, seq_length)
+# def randomize_dataset_blocks(args, dataloader):
+#     """ Add some diversity in the dataset at each epoch to reduce overfitting """
+#     shift = random.randrange(1, args.num_max_positions)
+#     seq_length = random.choice((int(args.num_max_positions / 2), args.num_max_positions))
+#     dataset = dataloader.dataset.view(-1)
+#     out_dataset = torch.empty_like(dataset)
+#     out_dataset[shift:] = dataset[:-shift]
+#     out_dataset[:shift] = dataset[-shift:]
+#     dataloader.dataset = out_dataset.view(-1, seq_length)
 
 def get_data_loaders(args, tokenizer):
     """ Prepare the dataloaders for training and evaluation """
@@ -157,7 +157,7 @@ def train():
         trainer.add_event_handler(Events.COMPLETED, lambda _: evaluator.run(val_loader))
 
     # Randomize a bit on each epoch
-    trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: randomize_dataset_blocks(args, train_loader))
+    # trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: randomize_dataset_blocks(args, train_loader))
 
     # Make sure distributed data samplers split the dataset nicely between the distributed processes
     if args.distributed:

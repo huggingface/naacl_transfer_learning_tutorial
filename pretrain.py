@@ -50,7 +50,7 @@ def get_data_loaders(args, tokenizer):
     datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache)
 
     logger.info("Convert to Tensor and reshape")
-    for split_name in ['test', 'train', 'valid']:
+    for split_name in ['train', 'valid']:
         tensor = torch.tensor(datasets[split_name], dtype=torch.long)
         num_sequences = (tensor.size(0) // args.num_max_positions) * args.num_max_positions
         datasets[split_name] = tensor.narrow(0, 0, num_sequences).view(-1, args.num_max_positions)

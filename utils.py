@@ -42,7 +42,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
             dataset_file = cached_path(dataset_dir[split_name])
             with open(dataset_file, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
-                dataset[split_name] = [idx for line in all_lines \
+                dataset[split_name] = [idx for line in tqdm(all_lines) \
                                        for idx in line.strip(' ').replace('\n', '[SEP]').replace('<unk>', '[UNK]').split(' ')\
                                        if len(line.strip(' '))]
 

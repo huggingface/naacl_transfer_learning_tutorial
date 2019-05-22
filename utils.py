@@ -57,26 +57,28 @@ def pad_dataset(dataset, padding=0):
     return dataset
 
 
-def add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args):
+def add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args, prefix=""):
     """ Add to training engine tensorboard logging, progress bar with average loss, checkpoint saving and save training config. """
     # Add progress bar with average loss
-    RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
+    RunningAverage(output_transform=lambda x: x).attach(trainer, prefix + "loss")
     pbar = ProgressBar(persist=True)
-    pbar.attach(trainer, metric_names=["loss"])
+    pbar.attach(trainer, metric_names=[prefix + "loss"])
     evaluator.add_event_handler(Events.COMPLETED, lambda _: pbar.log_message("Validation: %s" % pformat(evaluator.state.metrics)))
 
     # Add tensorboard logging with training and evaluation metrics
     tb_logger = TensorboardLogger(log_dir=None)
-    tb_logger.attach(trainer, log_handler=OutputHandler(tag="training", metric_names=["loss"]), event_name=Events.ITERATION_COMPLETED)
-    tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer), event_name=Events.ITERATION_STARTED)
+    tb_logger.attach(trainer, log_handler=OutputHandler(tag="training", metric_names=[prefix + "loss"]),
+                     event_name=Events.ITERATION_COMPLETED)
+    tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer),
+                     event_name=Events.ITERATION_STARTED)
     @evaluator.on(Events.COMPLETED)
     def tb_log_metrics(engine):
         for name in metrics.keys():
             tb_logger.writer.add_scalar(name, engine.state.metrics[name], trainer.state.iteration)
 
-    # Add checkpoint saving after each epoch
+    # Add checkpoint saving after each epoch - take care of distributed encapsulation ('getattr()')
     checkpoint_handler = ModelCheckpoint(tb_logger.writer.log_dir, 'checkpoint', save_interval=1, n_saved=3)
-    trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'mymodel': getattr(model, 'module', model)})  # "getattr" take care of distributed encapsulation
+    trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'mymodel': getattr(model, 'module', model)})
 
     # Save training configuration
     torch.save(args, os.path.join(tb_logger.writer.log_dir, CONFIG_NAME))

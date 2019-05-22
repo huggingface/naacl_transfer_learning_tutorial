@@ -11,7 +11,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 
-from ignite.contrib.handlers import CosineAnnealingScheduler, create_lr_scheduler_with_warmup
+from ignite.contrib.handlers import PiecewiseLinear, create_lr_scheduler_with_warmup
 from ignite.engine import Engine, Events
 from ignite.metrics import Accuracy, Loss, MetricsLambda
 
@@ -61,14 +61,14 @@ def train():
     parser.add_argument("--num_classes", type=int, default=2, help="Number of classes for the target classification task")
     parser.add_argument("--adapters_dim", type=int, default=-1, help="If >0 add adapters to the model wtih adapters_dim dimension")
 
-    parser.add_argument("--train_batch_size", type=int, default=8, help="Batch size for training")
-    parser.add_argument("--valid_batch_size", type=int, default=8, help="Batch size for validation")
-    parser.add_argument("--lr", type=float, default=2.5e-4, help="Learning rate")
+    parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size for training")
+    parser.add_argument("--valid_batch_size", type=int, default=16, help="Batch size for validation")
+    parser.add_argument("--lr", type=float, default=6e-5, help="Learning rate")
+    parser.add_argument("--n_warmup", type=int, default=500, help="Number of warmup iterations")
     parser.add_argument("--max_norm", type=float, default=0.25, help="Clipping gradient norm")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay")
     parser.add_argument("--n_epochs", type=int, default=3, help="Number of training epochs")
-    parser.add_argument("--n_warmup", type=int, default=0, help="Number of warmup iterations")
-    parser.add_argument("--eval_every", type=int, default=-1, help="Evaluate every X steps (-1 => end of epoch)")
+    parser.add_argument("--eval_every", type=int, default=100, help="Evaluate every X steps (-1 => end of epoch)")
 
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda or cpu)")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training (-1: not distributed)")
@@ -146,9 +146,9 @@ def train():
         trainer.add_event_handler(Events.EPOCH_STARTED, lambda engine: train_sampler.set_epoch(engine.state.epoch))
         evaluator.add_event_handler(Events.EPOCH_STARTED, lambda engine: valid_sampler.set_epoch(engine.state.epoch))
 
-    # Learning rate schedule: linearly warm-up to lr and then decrease the learning rate to zero with cosine schedule
-    cos_scheduler = CosineAnnealingScheduler(optimizer, 'lr', args.lr, 0.0, len(train_loader) * args.n_epochs)
-    scheduler = create_lr_scheduler_with_warmup(cos_scheduler, 0.0, args.lr, args.n_warmup)
+    # Learning rate schedule: linearly warm-up to lr and then to zero
+    linear_scheduler = PiecewiseLinear(optimizer, 'lr', (args.lr, 0.0), (0.0, len(train_loader) * args.n_epochs - args.n_warmup))
+    scheduler = create_lr_scheduler_with_warmup(linear_scheduler, 0.0, args.lr, args.n_warmup)
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
     # Prepare metrics - note how we average distributed metrics using average_distributed_scalar
@@ -159,7 +159,7 @@ def train():
 
     # On the main process: add progress bar, tensorboard, checkpoints and save model and configuration before we start to train
     if args.local_rank in [-1, 0]:
-        checkpoint_handler = add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args)
+        checkpoint_handler = add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args, prefix="finetune_")
 
     # Run the training
     trainer.run(train_loader, max_epochs=args.n_epochs)

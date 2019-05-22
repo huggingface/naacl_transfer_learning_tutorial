@@ -147,8 +147,7 @@ def train():
         evaluator.add_event_handler(Events.EPOCH_STARTED, lambda engine: valid_sampler.set_epoch(engine.state.epoch))
 
     # Learning rate schedule: linearly warm-up to lr and then to zero
-    linear_scheduler = PiecewiseLinear(optimizer, 'lr', (args.lr, 0.0), (0.0, len(train_loader) * args.n_epochs - args.n_warmup))
-    scheduler = create_lr_scheduler_with_warmup(linear_scheduler, 0.0, args.lr, args.n_warmup)
+    scheduler = PiecewiseLinear(optimizer, 'lr', [(0, 0.0), (args.n_warmup, args.lr), (len(train_loader) * args.n_epochs, 0.0)])
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
     # Prepare metrics - note how we average distributed metrics using average_distributed_scalar

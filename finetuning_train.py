@@ -61,6 +61,7 @@ def train():
     parser.add_argument("--num_classes", type=int, default=2, help="Number of classes for the target classification task")
     parser.add_argument("--adapters_dim", type=int, default=-1, help="If >0 add adapters to the model wtih adapters_dim dimension")
 
+    parser.add_argument("--clf_loss_coef", type=float, default=1, help="If >0 add a classification loss")
     parser.add_argument("--lm_loss_coef", type=float, default=-1, help="If >0 add a language modeling loss")
 
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size for training")
@@ -116,8 +117,8 @@ def train():
         model.train()
         inputs, labels = (t.to(args.device) for t in batch)
         inputs = inputs.transpose(0, 1).contiguous()  # to shape [seq length, batch]
-        logits, losses = model(inputs, clf_labels=labels, lm_labels=inputs if args.lm_loss_coef > 0 else None)
-        loss = (losses[0] + args.lm_loss_coef * losses[1]) if args.lm_loss_coef > 0 else losses[0]
+        _, (clf_loss, lm_loss) = model(inputs, clf_labels=labels, lm_labels=inputs)
+        loss = max(0, args.clf_loss_coef) * clf_loss + max(0, args.lm_loss_coef) * lm_loss
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
         optimizer.step()

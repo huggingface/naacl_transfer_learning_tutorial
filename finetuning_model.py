@@ -56,7 +56,7 @@ class TransformerWithClfHead(TransformerWithLMHead):
     def forward(self, x, lm_labels=None, clf_labels=None):
         """ Input has shape [seq length, batch] """
         hidden_states = self.transformer(x)
-        lm_logits = self.classification_head(hidden_states)
+        lm_logits = self.lm_head(hidden_states)
         clf_logits = self.classification_head(hidden_states[-1])
 
         loss = []

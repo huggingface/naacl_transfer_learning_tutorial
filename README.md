@@ -51,7 +51,7 @@ python ./pretraining_train.py
 or using distributed training like this (for a 8 GPU server):
 
 ```bash
-python - torch.distributed.launch --nproc_per_node 8 ./pretraining_train.py
+python -m torch.distributed.launch --nproc_per_node 8 ./pretraining_train.py
 ```
 
 The pre-training script will:
@@ -59,6 +59,12 @@ The pre-training script will:
 - download `wikitext-103` for pre-training (default),
 - log the experiements in Tensorboard and in a folder under `./runs`,
 - save checkpoints in the log folder.
+
+Various pre-training options are available, you can list them with:
+
+```bash
+python ./pretraining_train.py --help
+```
 
 ## Fine-tuning
 
@@ -73,5 +79,11 @@ python ./finetuning_train.py --model_checkpoint PATH-TO-YOUR-PRETRAINED-MODEL-FO
 or using distributed training like this (for a 8 GPU server):
 
 ```bash
-python - torch.distributed.launch --nproc_per_node 8 ./finetuning_train.py  --model_checkpoint PATH-TO-YOUR-PRETRAINED-MODEL-FOLDER
+python -m torch.distributed.launch --nproc_per_node 8 ./finetuning_train.py  --model_checkpoint PATH-TO-YOUR-PRETRAINED-MODEL-FOLDER
+```
+
+Various fine-tuning options are available, you can list them with:
+
+```bash
+python ./finetuning_train.py --help
 ```

@@ -15,10 +15,10 @@ from ignite.contrib.handlers import CosineAnnealingScheduler, create_lr_schedule
 from ignite.engine import Engine, Events
 from ignite.metrics import Accuracy, Loss, MetricsLambda
 
-from pytorch_pretrained_bert import BertTokenizer
+from pytorch_pretrained_bert import BertTokenizer, cached_path
 
 from utils import (get_and_tokenize_dataset, average_distributed_scalar, pad_dataset,
-                   add_logging_and_checkpoint_saving, WEIGHTS_NAME, CONFIG_NAME)
+                   add_logging_and_checkpoint_saving, WEIGHTS_NAME, CONFIG_NAME, PRETRAINED_MODEL_URL)
 
 logger = logging.getLogger(__file__)
 
@@ -53,7 +53,7 @@ def get_data_loaders(args, tokenizer, trim_length, add_clf_token=None):
 
 def train():
     parser = ArgumentParser()
-    parser.add_argument("--model_checkpoint", type=str, default='./model', help="Path to the pretrained model checkpoint")
+    parser.add_argument("--model_checkpoint", type=str, default=PRETRAINED_MODEL_URL, help="Path to the pretrained model checkpoint")
     parser.add_argument("--dataset_path", type=str, default='imdb', help="'imdb' or a dict of splits paths.")
     parser.add_argument("--dataset_cache", type=str, default='./dataset_cache_fine_tune', help="Path or url of the dataset cache")
 
@@ -91,11 +91,11 @@ def train():
 
     logger.info("Create model from class %s and configuration %s", args.finetuning_model_class, os.path.join(args.model_checkpoint, CONFIG_NAME))
     ModelClass = getattr(importlib.import_module("finetuning_model"), args.finetuning_model_class)
-    pretraining_args = torch.load(os.path.join(args.model_checkpoint, CONFIG_NAME))
+    pretraining_args = torch.load(cached_path(os.path.join(args.model_checkpoint, CONFIG_NAME)))
     model = ModelClass(config=pretraining_args, fine_tuning_config=args).to(args.device)
 
     logger.info("Load pretrained weigths from %s", os.path.join(args.model_checkpoint, WEIGHTS_NAME))
-    state_dict = torch.load(os.path.join(args.model_checkpoint, WEIGHTS_NAME), map_location='cpu')
+    state_dict = torch.load(cached_path(os.path.join(args.model_checkpoint, WEIGHTS_NAME)), map_location='cpu')
     model.load_state_dict(state_dict, strict=False)
 
     optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

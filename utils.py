@@ -30,6 +30,8 @@ DATASETS_URL = {
                                 'convert': {'pos': 0, 'neg': 1}}},
     }
 
+PRETRAINED_MODEL_URL = "https://s3.amazonaws.com/models.huggingface.co/naacl-2019-tutorial/"
+
 WEIGHTS_NAME = 'model_checkpoint.pth'
 CONFIG_NAME = 'model_training_args.bin'
 

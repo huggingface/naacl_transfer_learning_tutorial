@@ -127,9 +127,9 @@ def train():
     def inference(engine, batch):
         model.eval()
         with torch.no_grad():
-            inputs, labels = batch
-            inputs = inputs.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-            lm_logits, clf_logits = model(batch)
+            inputs, labels = (t.to(args.device) for t in batch)
+            inputs = inputs.transpose(0, 1).contiguous()  # to shape [seq length, batch]
+            lm_logits, clf_logits = model(inputs)
             return clf_logits, labels
     evaluator = Engine(inference)
 

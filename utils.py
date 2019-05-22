@@ -106,6 +106,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
                     labels[split_name] = [dataset_dir['labels']['convert'][line.strip()] for line in tqdm(all_lines)]
 
         logger.info("Tokenize and encode the dataset")
+        logging.getLogger("pytorch_pretrained_bert.tokenization").setLevel(logging.ERROR)  # No warning on sample size
         def encode(obj):
             if isinstance(obj, str):
                 return tokenizer.convert_tokens_to_ids(tokenizer.tokenize(obj))

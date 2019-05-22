@@ -48,12 +48,12 @@ def average_distributed_scalar(scalar, args):
     return scalar_t.item()
 
 
-def pad_dataset(dataset, padding=0):
-    """ Pad a dataset (list of list).
+def pad_dataset(dataset, padding=0, to_left=True):
+    """ Pad a dataset (list of list) to the left or the right.
         This could be optimized by defining a Dataset class and dynamically pad batches but this is easier to write.
     """
     max_l = max(len(x) for x in dataset)
-    dataset = [x + [padding] * (max_l - len(x)) for x in dataset]
+    dataset = [(x if to_left else []) + [padding] * (max_l - len(x)) + ([] if to_left else x) for x in dataset]
     return dataset
 
 

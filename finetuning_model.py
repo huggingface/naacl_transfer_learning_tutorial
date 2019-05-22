@@ -60,15 +60,15 @@ class TransformerWithClfHead(TransformerWithLMHead):
         clf_logits = self.classification_head(hidden_states[-1])
 
         loss = []
+        if clf_labels is not None:
+            loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+            loss.append(loss_fct(clf_logits.view(-1, clf_logits.size(-1)), clf_labels.view(-1)))
+
         if lm_labels is not None:
             shift_logits = lm_logits[:-1]
             shift_labels = lm_labels[1:]
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
             loss.append(loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)))
-
-        if clf_labels is not None:
-            loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-            loss.append(loss_fct(clf_logits.view(-1, clf_logits.size(-1)), clf_labels.view(-1)))
 
         if len(loss):
             return (lm_logits, clf_logits), loss

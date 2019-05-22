@@ -30,9 +30,9 @@ def get_data_loaders(args, tokenizer, trim_length, add_clf_token=None):
     logger.info("Convert to Tensor, pad and trim to trim_length")
     tensor_datasets = {}
     for split_name in ['train', 'valid']:
-        dataset = pad_dataset(datasets[split_name])
+        dataset = pad_dataset(datasets[split_name], to_left=False)  # pad to the right (to keep the end of examples)
         tensor = torch.tensor(dataset, dtype=torch.long)
-        tensor = tensor.narrow(-1, 0, trim_length)
+        tensor = tensor.narrow(-1, -trim_length, trim_length)  # keep the end of examples in priority
         if add_clf_token is not None:
             tensor = torch.cat([tensor[:, :-1], torch.full((len(tensor), 1), add_clf_token, dtype=torch.long)], dim=-1)
         labels = torch.tensor(datasets[split_name + '_labels'], dtype=torch.long)
@@ -61,8 +61,10 @@ def train():
     parser.add_argument("--num_classes", type=int, default=2, help="Number of classes for the target classification task")
     parser.add_argument("--adapters_dim", type=int, default=-1, help="If >0 add adapters to the model wtih adapters_dim dimension")
 
+    parser.add_argument("--lm_loss_coef", type=float, default=-1, help="If >0 add a language modeling loss")
+
     parser.add_argument("--train_batch_size", type=int, default=16, help="Batch size for training")
-    parser.add_argument("--valid_batch_size", type=int, default=16, help="Batch size for validation")
+    parser.add_argument("--valid_batch_size", type=int, default=32, help="Batch size for validation")
     parser.add_argument("--lr", type=float, default=6e-5, help="Learning rate")
     parser.add_argument("--n_warmup", type=int, default=500, help="Number of warmup iterations")
     parser.add_argument("--max_norm", type=float, default=0.25, help="Clipping gradient norm")
@@ -114,8 +116,8 @@ def train():
         model.train()
         inputs, labels = (t.to(args.device) for t in batch)
         inputs = inputs.transpose(0, 1).contiguous()  # to shape [seq length, batch]
-        logits, losses = model(inputs, clf_labels=labels)
-        loss = sum(losses)
+        logits, losses = model(inputs, clf_labels=labels, lm_labels=inputs if args.lm_loss_coef > 0 else None)
+        loss = (losses[0] + args.lm_loss_coef * losses[1]) if args.lm_loss_coef > 0 else losses[0]
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
         optimizer.step()

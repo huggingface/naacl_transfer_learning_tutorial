@@ -17,23 +17,22 @@ from ignite.metrics import Accuracy, Loss, MetricsLambda
 
 from pytorch_pretrained_bert import BertTokenizer
 
-from finetuning_model import TransformerWithClassificationHead
 from utils import (get_and_tokenize_dataset, average_distributed_scalar, pad_dataset,
                    add_logging_and_checkpoint_saving, WEIGHTS_NAME, CONFIG_NAME)
 
 logger = logging.getLogger(__file__)
 
-def get_data_loaders(args, tokenizer, add_clf_token=None):
+def get_data_loaders(args, tokenizer, trim_length, add_clf_token=None):
     """ Prepare the dataloaders for training and evaluation.
         Add a classification token at the end of each sample if needed. """
     datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache, with_labels=True)
 
-    logger.info("Convert to Tensor, pad and trim to num_max_positions")
+    logger.info("Convert to Tensor, pad and trim to trim_length")
     tensor_datasets = {}
     for split_name in ['train', 'valid']:
         dataset = pad_dataset(datasets[split_name])
         tensor = torch.tensor(dataset, dtype=torch.long)
-        tensor = tensor.narrow(-1, 0, args.num_max_positions)
+        tensor = tensor.narrow(-1, 0, trim_length)
         if add_clf_token is not None:
             tensor = torch.cat([tensor[:, :-1], torch.full((len(tensor), 1), add_clf_token, dtype=torch.long)], dim=-1)
         labels = torch.tensor(datasets[split_name + '_labels'], dtype=torch.long)
@@ -58,8 +57,9 @@ def train():
     parser.add_argument("--dataset_path", type=str, default='imdb', help="'imdb' or a dict of splits paths.")
     parser.add_argument("--dataset_cache", type=str, default='./dataset_cache_fine_tune', help="Path or url of the dataset cache")
 
-    parser.add_argument("--finetuning_model_class", type=str, default="TransformerWithClassificationHead", help="Model class for the target task")
+    parser.add_argument("--finetuning_model_class", type=str, default="TransformerWithClfHead", help="Fine-tuning model class for the target task")
     parser.add_argument("--num_classes", type=int, default=2, help="Number of classes for the target classification task")
+    parser.add_argument("--adapters_dim", type=int, default=-1, help="If >0 add adapters to the model wtih adapters_dim dimension")
 
     parser.add_argument("--train_batch_size", type=int, default=8, help="Batch size for training")
     parser.add_argument("--valid_batch_size", type=int, default=8, help="Batch size for validation")
@@ -91,10 +91,8 @@ def train():
 
     logger.info("Create model from class %s and configuration %s", args.finetuning_model_class, os.path.join(args.model_checkpoint, CONFIG_NAME))
     ModelClass = getattr(importlib.import_module("finetuning_model"), args.finetuning_model_class)
-    model_args = torch.load(os.path.join(args.model_checkpoint, CONFIG_NAME))
-    model_args.num_classes = args.num_classes
-    args.num_max_positions = model_args.num_max_positions
-    model = ModelClass(model_args).to(args.device)
+    pretraining_args = torch.load(os.path.join(args.model_checkpoint, CONFIG_NAME))
+    model = ModelClass(config=pretraining_args, fine_tuning_config=args).to(args.device)
 
     logger.info("Load pretrained weigths from %s", os.path.join(args.model_checkpoint, WEIGHTS_NAME))
     state_dict = torch.load(os.path.join(args.model_checkpoint, WEIGHTS_NAME), map_location='cpu')
@@ -108,15 +106,16 @@ def train():
         model = DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
 
     logger.info("Prepare datasets")
-    (train_loader, val_loader,
-     train_sampler, valid_sampler) = get_data_loaders(args, tokenizer, add_clf_token=tokenizer.vocab['[CLS]'])
+    loaders = get_data_loaders(args, tokenizer, pretraining_args.num_max_positions, add_clf_token=tokenizer.vocab['[CLS]'])
+    train_loader, val_loader, train_sampler, valid_sampler = loaders
 
     # Training function and trainer
     def update(engine, batch):
         model.train()
         inputs, labels = batch
         inputs = inputs.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-        logits, loss = model(inputs, labels=labels)
+        logits, losses = model(inputs, clf_labels=labels)
+        loss = sum(losses)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
         optimizer.step()
@@ -130,8 +129,8 @@ def train():
         with torch.no_grad():
             inputs, labels = batch
             inputs = inputs.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-            logits = model(batch)
-            return logits, labels
+            lm_logits, clf_logits = model(batch)
+            return clf_logits, labels
     evaluator = Engine(inference)
 
     # Attach evaluation to trainer: we evaluate at the end of each epoch and every 'eval_every' iterations if needed

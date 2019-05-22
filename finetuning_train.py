@@ -159,7 +159,7 @@ def train():
 
     # On the main process: add progress bar, tensorboard, checkpoints and save model and configuration before we start to train
     if args.local_rank in [-1, 0]:
-        add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args)
+        checkpoint_handler = add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args)
 
     # Run the training
     trainer.run(train_loader, max_epochs=args.n_epochs)

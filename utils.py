@@ -59,24 +59,29 @@ def pad_dataset(dataset, padding=0):
 
 def add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args):
     """ Add to training engine tensorboard logging, progress bar with average loss, checkpoint saving and save training config. """
+    # Add progress bar with average loss
     RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
     pbar = ProgressBar(persist=True)
     pbar.attach(trainer, metric_names=["loss"])
     evaluator.add_event_handler(Events.COMPLETED, lambda _: pbar.log_message("Validation: %s" % pformat(evaluator.state.metrics)))
 
+    # Add tensorboard logging with training and evaluation metrics
     tb_logger = TensorboardLogger(log_dir=None)
     tb_logger.attach(trainer, log_handler=OutputHandler(tag="training", metric_names=["loss"]), event_name=Events.ITERATION_COMPLETED)
     tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer), event_name=Events.ITERATION_STARTED)
-
-    @evaluator.on(Events.COMPLETED)  # Log evaluator metrics on tensorboard
+    @evaluator.on(Events.COMPLETED)
     def tb_log_metrics(engine):
         for name in metrics.keys():
             tb_logger.writer.add_scalar(name, engine.state.metrics[name], trainer.state.iteration)
 
+    # Add checkpoint saving after each epoch
     checkpoint_handler = ModelCheckpoint(tb_logger.writer.log_dir, 'checkpoint', save_interval=1, n_saved=3)
     trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'mymodel': getattr(model, 'module', model)})  # "getattr" take care of distributed encapsulation
 
+    # Save training configuration
     torch.save(args, os.path.join(tb_logger.writer.log_dir, CONFIG_NAME))
+
+    return checkpoint_handler
 
 
 def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cache=None, with_labels=False):
@@ -85,12 +90,15 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
         logger.info("Load encoded dataset from cache at %s", dataset_cache)
         encoded_dataset = torch.load(dataset_cache)
     else:
+        # If the dataset is in our list of DATASETS_URL, use this url, otherwise, look for 'train.txt' and 'valid.txt' files
         if dataset_dir in DATASETS_URL:
             dataset_dir = DATASETS_URL[dataset_dir]
         else:
             dataset_dir = {'train': os.path.join(dataset_dir, 'train.txt'),
                            'valid': os.path.join(dataset_dir, 'valid.txt')}
+
         logger.info("Get dataset from %s", dataset_dir)
+        # Download and read dataset and replace a few token for compatibility with the Bert tokenizer we are using
         dataset = {}
         for split_name in ['train', 'valid']:
             dataset_file = cached_path(dataset_dir[split_name])
@@ -98,6 +106,8 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
                 all_lines = f.readlines()
                 dataset[split_name] = [
                     line.strip(' ').replace('\n', '[SEP]').replace('<unk>', '[UNK]') for line in tqdm(all_lines)]
+
+        # Download and read labels if needed, convert labels names to integers
         labels = {}
         if with_labels:
             for split_name in ['train', 'valid']:
@@ -106,6 +116,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
                     all_lines = f.readlines()
                     labels[split_name] = [dataset_dir['labels']['convert'][line.strip()] for line in tqdm(all_lines)]
 
+        # Tokenize and encode the dataset
         logger.info("Tokenize and encode the dataset")
         logging.getLogger("pytorch_pretrained_bert.tokenization").setLevel(logging.ERROR)  # No warning on sample size
         def encode(obj):
@@ -116,7 +127,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
             return list(encode(o) for o in tqdm(obj))
         encoded_dataset = encode(dataset)
 
-        # Add labels if classification, or for language modeling, add number of words and gather in one list
+        # Add labels if needed, or if we are doing language modeling, add number of words to get word-level ppl and gather in one list
         for split_name in ['train', 'valid']:
             if with_labels:
                 encoded_dataset[split_name + '_labels'] = labels[split_name]
@@ -124,6 +135,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
                 encoded_dataset[split_name] = [ind for line in encoded_dataset[split_name] for ind in line]
                 encoded_dataset[split_name + '_num_words'] = sum(len(line.split(' ')) for line in dataset[split_name])
 
+        # Save to cache
         if dataset_cache:
             logger.info("Save encoded dataset to cache at %s", dataset_cache)
             torch.save(encoded_dataset, dataset_cache)

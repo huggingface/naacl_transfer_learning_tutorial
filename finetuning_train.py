@@ -112,8 +112,8 @@ def train():
     # Training function and trainer
     def update(engine, batch):
         model.train()
-        inputs, labels = batch
-        inputs = inputs.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
+        inputs, labels = (t.to(args.device) for t in batch)
+        inputs = inputs.transpose(0, 1).contiguous()  # to shape [seq length, batch]
         logits, losses = model(inputs, clf_labels=labels)
         loss = sum(losses)
         loss.backward()

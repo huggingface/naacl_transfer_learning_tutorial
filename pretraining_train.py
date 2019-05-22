@@ -117,9 +117,9 @@ def train():
         with torch.no_grad():
             batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
             logits = model(batch)
-            shift_logits = logits[:-1].view(-1, logits.size(-1))
-            shift_labels = batch[1:].view(-1)
-            return shift_logits, shift_labels
+            shift_logits = logits[:-1]
+            shift_labels = batch[1:]
+            return shift_logits.view(-1, logits.size(-1)), shift_labels.view(-1)
     evaluator = Engine(inference)
 
     # Attach evaluation to trainer: we evaluate at the end of each epoch and every 'eval_every' iterations if needed

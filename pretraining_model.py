@@ -58,24 +58,20 @@ class TransformerWithLMHead(nn.Module):
         self.lm_head.weight = self.transformer.tokens_embeddings.weight
 
     def init_weights(self, module):
+        """ initialize weights - note that nn.MultiheadAttention is already initalized by PyTorch (xavier_uniform) """
         if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-        elif isinstance(module, nn.MultiheadAttention):
-            module.out_proj.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            module.in_proj_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            module.out_proj.bias.data.zero_()
-            module.in_proj_bias.data.zero_()
         if isinstance(module, (nn.Linear, nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
-    def forward(self, x, labels=None):
+    def forward(self, x, labels=None, shifted=True):
         """ Input has shape [seq length, batch] """
         hidden_states = self.transformer(x)
         logits = self.lm_head(hidden_states)
 
         if labels is not None:
-            shift_logits = logits[:-1]
-            shift_labels = labels[1:]
+            shift_logits = logits[:-1] if shifted else logits
+            shift_labels = labels[1:] if shifted else labels
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             return logits, loss

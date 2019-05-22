@@ -89,6 +89,7 @@ def train():
         args.device = torch.device("cuda", args.local_rank)
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
+    # Loading tokenizer, pretrained model and optimizer
     logger.info("Prepare tokenizer, model and optimizer")
     tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)  # Let's use a pre-defined tokenizer
 
@@ -100,6 +101,7 @@ def train():
     logger.info("Load pretrained weigths from %s", os.path.join(args.model_checkpoint, WEIGHTS_NAME))
     state_dict = torch.load(cached_path(os.path.join(args.model_checkpoint, WEIGHTS_NAME)), map_location='cpu')
     model.load_state_dict(state_dict, strict=False)
+    model.tie_weights()
 
     optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     logger.info("Model has %s parameters", sum(p.numel() for p in model.parameters() if p.requires_grad))

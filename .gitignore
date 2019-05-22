@@ -1,5 +1,6 @@
 .vscode
 data/
+models/
 runs/
 __pycache__
 dataset_cache*

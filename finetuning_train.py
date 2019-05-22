@@ -1,81 +1,74 @@
 # Copyright (c) 2019-present, Thomas Wolf.
 # All rights reserved. This source code is licensed under the MIT-style license found in the LICENSE file in the root directory of this source tree.
 import logging
-import math
-import random
+import importlib
 import os
 from argparse import ArgumentParser
-from collections import defaultdict
-from itertools import chain
 from pprint import pformat
 
 import torch
 from torch.nn.parallel import DistributedDataParallel
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
-from torch import nn as nn
-from torch.nn import functional as F
-from torch.optim.lr_scheduler import ExponentialLR
 
-from ignite.contrib.handlers import ProgressBar, CosineAnnealingScheduler, create_lr_scheduler_with_warmup
-from ignite.contrib.handlers.tensorboard_logger import OptimizerParamsHandler, OutputHandler, TensorboardLogger
+from ignite.contrib.handlers import CosineAnnealingScheduler, create_lr_scheduler_with_warmup
 from ignite.engine import Engine, Events
-from ignite.handlers import ModelCheckpoint
-from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
+from ignite.metrics import Accuracy, Loss, MetricsLambda
 
 from pytorch_pretrained_bert import BertTokenizer
 
-from model import TransformerWithLMHead
-from utils import get_and_tokenize_dataset, average_distributed_scalar
+from finetuning_model import TransformerWithClassificationHead
+from utils import (get_and_tokenize_dataset, average_distributed_scalar, pad_dataset,
+                   add_logging_and_checkpoint_saving, WEIGHTS_NAME, CONFIG_NAME)
 
 logger = logging.getLogger(__file__)
 
-WEIGHTS_NAME = 'model_checkpoint.pth'
-CONFIG_NAME = 'model_training_args.bin'
+def get_data_loaders(args, tokenizer, add_clf_token=None):
+    """ Prepare the dataloaders for training and evaluation.
+        Add a classification token at the end of each sample if needed. """
+    datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache, with_labels=True)
 
-def get_data_loaders(args, tokenizer):
-    """ Prepare the dataloaders for training and evaluation """
-    datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache)
-
-    logger.info("Convert to Tensor and reshape")
+    logger.info("Convert to Tensor, pad and trim to num_max_positions")
+    tensor_datasets = {}
     for split_name in ['train', 'valid']:
-        tensor = torch.tensor(datasets[split_name], dtype=torch.long)
-        num_sequences = (tensor.size(0) // args.num_max_positions) * args.num_max_positions
-        datasets[split_name] = tensor.narrow(0, 0, num_sequences).view(-1, args.num_max_positions)
+        dataset = pad_dataset(datasets[split_name])
+        tensor = torch.tensor(dataset, dtype=torch.long)
+        tensor = tensor.narrow(-1, 0, args.num_max_positions)
+        if add_clf_token is not None:
+            tensor = torch.cat([tensor[:, :-1], torch.full((len(tensor), 1), add_clf_token, dtype=torch.long)], dim=-1)
+        labels = torch.tensor(datasets[split_name + '_labels'], dtype=torch.long)
+        tensor_datasets[split_name] = (tensor, labels)
 
     logger.info("Build train and validation dataloaders")
+    train_dataset = TensorDataset(*tensor_datasets['train'])
+    valid_dataset = TensorDataset(*tensor_datasets['valid'])
     train_sampler = torch.utils.data.distributed.DistributedSampler(datasets['train']) if args.distributed else None
     valid_sampler = torch.utils.data.distributed.DistributedSampler(datasets['valid']) if args.distributed else None
-    train_loader = DataLoader(datasets['train'], sampler=train_sampler, batch_size=args.train_batch_size, shuffle=(not args.distributed))
-    valid_loader = DataLoader(datasets['valid'], sampler=valid_sampler, batch_size=args.valid_batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size, shuffle=(not args.distributed))
+    valid_loader = DataLoader(valid_dataset, sampler=valid_sampler, batch_size=args.valid_batch_size, shuffle=False)
 
-    logger.info("Train dataset (Batch, Seq length): {}".format(datasets['train'].shape))
-    logger.info("Valid dataset (Batch, Seq length): {}".format(datasets['valid'].shape))
-    return train_loader, valid_loader, train_sampler, valid_sampler, datasets['train_num_words'], datasets['valid_num_words']
+    logger.info("Train dataset (Batch, Seq length): {}".format(train_dataset.tensors[0].shape))
+    logger.info("Valid dataset (Batch, Seq length): {}".format(valid_dataset.tensors[0].shape))
+    return train_loader, valid_loader, train_sampler, valid_sampler
 
 
 def train():
     parser = ArgumentParser()
-    parser.add_argument("--dataset_path", type=str, default='wikitext-2', help="One of ('wikitext-103', 'wikitext-2') or a dict of splits paths.")
-    parser.add_argument("--dataset_cache", type=str, default='./dataset_cache', help="Path or url of the dataset cache")
+    parser.add_argument("--model_checkpoint", type=str, default='./model', help="Path to the pretrained model checkpoint")
+    parser.add_argument("--dataset_path", type=str, default='imdb', help="'imdb' or a dict of splits paths.")
+    parser.add_argument("--dataset_cache", type=str, default='./dataset_cache_fine_tune', help="Path or url of the dataset cache")
 
-    parser.add_argument("--embed_dim", type=int, default=410, help="Embeddings dim")
-    parser.add_argument("--hidden_dim", type=int, default=2100, help="Hidden dimension")
-    parser.add_argument("--num_max_positions", type=int, default=256, help="Max input length")
-    parser.add_argument("--num_heads", type=int, default=10, help="Number of heads")
-    parser.add_argument("--num_layers", type=int, default=16, help="NUmber of layers")
-    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout")
-    parser.add_argument("--initializer_range", type=float, default=0.02, help="Dropout")
+    parser.add_argument("--finetuning_model_class", type=str, default="TransformerWithClassificationHead", help="Model class for the target task")
+    parser.add_argument("--num_classes", type=int, default=2, help="Number of classes for the target classification task")
 
     parser.add_argument("--train_batch_size", type=int, default=8, help="Batch size for training")
     parser.add_argument("--valid_batch_size", type=int, default=8, help="Batch size for validation")
     parser.add_argument("--lr", type=float, default=2.5e-4, help="Learning rate")
     parser.add_argument("--max_norm", type=float, default=0.25, help="Clipping gradient norm")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay")
-    parser.add_argument("--n_epochs", type=int, default=200, help="Number of training epochs")
-    parser.add_argument("--n_warmup", type=float, default=1000, help="Number of warmup iterations")
+    parser.add_argument("--n_epochs", type=int, default=3, help="Number of training epochs")
+    parser.add_argument("--n_warmup", type=float, default=0, help="Number of warmup iterations")
     parser.add_argument("--eval_every", type=int, default=-1, help="Evaluate every X steps (-1 => end of epoch)")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Accumulate gradient")
 
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda or cpu)")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training (-1: not distributed)")
@@ -95,9 +88,18 @@ def train():
 
     logger.info("Prepare tokenizer, model and optimizer")
     tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)  # Let's use a pre-defined tokenizer
-    args.num_embeddings = len(tokenizer.vocab)  # We need this to create the model at next line (number of embeddings to use)
-    model = TransformerWithLMHead(args)
-    model.to(args.device)
+
+    logger.info("Create model from class %s and configuration %s", args.finetuning_model_class, os.path.join(args.model_checkpoint, CONFIG_NAME))
+    ModelClass = getattr(importlib.import_module("finetuning_model"), args.finetuning_model_class)
+    model_args = torch.load(os.path.join(args.model_checkpoint, CONFIG_NAME))
+    model_args.num_classes = args.num_classes
+    args.num_max_positions = model_args.num_max_positions
+    model = ModelClass(model_args).to(args.device)
+
+    logger.info("Load pretrained weigths from %s", os.path.join(args.model_checkpoint, WEIGHTS_NAME))
+    state_dict = torch.load(os.path.join(args.model_checkpoint, WEIGHTS_NAME), map_location='cpu')
+    model.load_state_dict(state_dict, strict=False)
+
     optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     logger.info("Model has %s parameters", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
@@ -106,19 +108,19 @@ def train():
         model = DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
 
     logger.info("Prepare datasets")
-    train_loader, val_loader, train_sampler, valid_sampler, train_num_words, valid_num_words = get_data_loaders(args, tokenizer)
+    (train_loader, val_loader,
+     train_sampler, valid_sampler) = get_data_loaders(args, tokenizer, add_clf_token=tokenizer.vocab['[CLS]'])
 
     # Training function and trainer
     def update(engine, batch):
         model.train()
-        batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-        logits, loss = model(batch, labels=batch)
-        loss = loss / args.gradient_accumulation_steps
+        inputs, labels = batch
+        inputs = inputs.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
+        logits, loss = model(inputs, labels=labels)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
-        if engine.state.iteration % args.gradient_accumulation_steps == 0:
-            optimizer.step()
-            optimizer.zero_grad()
+        optimizer.step()
+        optimizer.zero_grad()
         return loss.item()
     trainer = Engine(update)
 
@@ -126,11 +128,10 @@ def train():
     def inference(engine, batch):
         model.eval()
         with torch.no_grad():
-            batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
+            inputs, labels = batch
+            inputs = inputs.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
             logits = model(batch)
-            shift_logits = logits[:-1].view(-1, logits.size(-1))
-            shift_labels = batch[1:].view(-1)
-            return shift_logits, shift_labels
+            return logits, labels
     evaluator = Engine(inference)
 
     # Attach evaluation to trainer: we evaluate at the end of each epoch and every 'eval_every' iterations if needed
@@ -152,33 +153,14 @@ def train():
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
     # Prepare metrics - note how we average distributed metrics using average_distributed_scalar
-    RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
-    metrics = {"nll": Loss(torch.nn.CrossEntropyLoss(ignore_index=-1))}
-    metrics.update({"average_nll": MetricsLambda(average_distributed_scalar, metrics["nll"], args)})
-    metrics["average_ppl"] = MetricsLambda(math.exp, metrics["average_nll"])
-    metrics["average_word_ppl"] = MetricsLambda(lambda x: math.exp(x * val_loader.dataset.numel() / valid_num_words), metrics["average_nll"])
+    metrics = {"accuracy": Accuracy()}
+    metrics.update({"average_accuracy": MetricsLambda(average_distributed_scalar, metrics["accuracy"], args)})
     for name, metric in metrics.items():
         metric.attach(evaluator, name)
 
     # On the main process: add progress bar, tensorboard, checkpoints and save model and configuration before we start to train
     if args.local_rank in [-1, 0]:
-        pbar = ProgressBar(persist=True)
-        pbar.attach(trainer, metric_names=["loss"])
-        evaluator.add_event_handler(Events.COMPLETED, lambda _: pbar.log_message("Validation: %s" % pformat(evaluator.state.metrics)))
-
-        tb_logger = TensorboardLogger(log_dir=None)
-        tb_logger.attach(trainer, log_handler=OutputHandler(tag="training", metric_names=["loss"]), event_name=Events.ITERATION_COMPLETED)
-        tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer), event_name=Events.ITERATION_STARTED)
-
-        @evaluator.on(Events.COMPLETED)  # Log evaluator metrics on tensorboard
-        def tb_log_metrics(engine):
-            for name in metrics.keys():
-                tb_logger.writer.add_scalar(name, engine.state.metrics[name], trainer.state.iteration)
-
-        checkpoint_handler = ModelCheckpoint(tb_logger.writer.log_dir, 'checkpoint', save_interval=1, n_saved=3)
-        trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'mymodel': getattr(model, 'module', model)})  # "getattr" take care of distributed encapsulation
-
-        torch.save(args, os.path.join(tb_logger.writer.log_dir, CONFIG_NAME))
+        add_logging_and_checkpoint_saving(trainer, evaluator, model, optimizer, args)
 
     # Run the training
     trainer.run(train_loader, max_epochs=args.n_epochs)

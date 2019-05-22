@@ -20,6 +20,7 @@ class Transformer(nn.Module):
             self.layer_norms_2.append(nn.LayerNorm(embed_dim, eps=1e-12))
 
     def forward(self, x):
+        """ Input has shape [seq length, batch] """
         positions = torch.arange(len(x), device=x.device).unsqueeze(-1)
         h = self.tokens_embeddings(x)
         h = h + self.position_embeddings(positions).expand_as(h)
@@ -43,14 +44,18 @@ class Transformer(nn.Module):
 
 class TransformerWithLMHead(nn.Module):
     def __init__(self, config):
+        """ Transformer with a language modeling head on top (tied weights) """
         super().__init__()
         self.config = config
         self.transformer = Transformer(config.embed_dim, config.hidden_dim, config.num_embeddings,
                                        config.num_max_positions, config.num_heads, config.num_layers,
                                        config.dropout)
         self.lm_head = nn.Linear(config.embed_dim, config.num_embeddings, bias=False)
-        self.lm_head.weight = self.transformer.tokens_embeddings.weight  # Tie weights
         self.apply(self.init_weights)
+        self.tie_weights()
+
+    def tie_weights(self):
+        self.lm_head.weight = self.transformer.tokens_embeddings.weight
 
     def init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
@@ -64,6 +69,7 @@ class TransformerWithLMHead(nn.Module):
             module.bias.data.zero_()
 
     def forward(self, x, labels=None):
+        """ Input has shape [seq length, batch] """
         hidden_states = self.transformer(x)
         logits = self.lm_head(hidden_states)
 

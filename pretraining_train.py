@@ -2,62 +2,50 @@
 # All rights reserved. This source code is licensed under the MIT-style license found in the LICENSE file in the root directory of this source tree.
 import logging
 import math
-import random
 import os
 from argparse import ArgumentParser
-from collections import defaultdict
-from itertools import chain
 from pprint import pformat
 
 import torch
 from torch.nn.parallel import DistributedDataParallel
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
-from torch import nn as nn
-from torch.nn import functional as F
-from torch.optim.lr_scheduler import ExponentialLR
 
-from ignite.contrib.handlers import ProgressBar, CosineAnnealingScheduler, create_lr_scheduler_with_warmup
-from ignite.contrib.handlers.tensorboard_logger import OptimizerParamsHandler, OutputHandler, TensorboardLogger
+from ignite.contrib.handlers import CosineAnnealingScheduler, create_lr_scheduler_with_warmup
 from ignite.engine import Engine, Events
-from ignite.handlers import ModelCheckpoint
-from ignite.metrics import Accuracy, Loss, MetricsLambda, RunningAverage
+from ignite.metrics import Loss, MetricsLambda
 
 from pytorch_pretrained_bert import BertTokenizer
 
-from model import TransformerWithLMHead
-from utils import get_and_tokenize_dataset, average_distributed_scalar
+from pretraining_model import TransformerWithLMHead
+from utils import get_and_tokenize_dataset, average_distributed_scalar, add_logging_and_checkpoint_saving, WEIGHTS_NAME
 
 logger = logging.getLogger(__file__)
 
-WEIGHTS_NAME = 'model_checkpoint.pth'
-CONFIG_NAME = 'model_training_args.bin'
-
 def get_data_loaders(args, tokenizer):
     """ Prepare the dataloaders for training and evaluation """
-    datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache, with_labels=True)
+    datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache)
 
     logger.info("Convert to Tensor and reshape")
     for split_name in ['train', 'valid']:
-        datasets[split_name] = torch.tensor(datasets[split_name], dtype=torch.long)
-        datasets[split_name + '_labels'] = torch.tensor(datasets[split_name + '_labels'], dtype=torch.long)
+        tensor = torch.tensor(datasets[split_name], dtype=torch.long)
+        num_sequences = (tensor.size(0) // args.num_max_positions) * args.num_max_positions
+        datasets[split_name] = tensor.narrow(0, 0, num_sequences).view(-1, args.num_max_positions)
 
     logger.info("Build train and validation dataloaders")
-    train_dataset = TensorDataset(datasets['train'], datasets['train_labels'])
-    valid_dataset = TensorDataset(datasets['valid'], datasets['valid_labels'])
     train_sampler = torch.utils.data.distributed.DistributedSampler(datasets['train']) if args.distributed else None
     valid_sampler = torch.utils.data.distributed.DistributedSampler(datasets['valid']) if args.distributed else None
-    train_loader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size, shuffle=(not args.distributed))
-    valid_loader = DataLoader(valid_dataset, sampler=valid_sampler, batch_size=args.valid_batch_size, shuffle=False)
+    train_loader = DataLoader(datasets['train'], sampler=train_sampler, batch_size=args.train_batch_size, shuffle=(not args.distributed))
+    valid_loader = DataLoader(datasets['valid'], sampler=valid_sampler, batch_size=args.valid_batch_size, shuffle=False)
 
     logger.info("Train dataset (Batch, Seq length): {}".format(datasets['train'].shape))
     logger.info("Valid dataset (Batch, Seq length): {}".format(datasets['valid'].shape))
-    return train_loader, valid_loader, train_sampler, valid_sampler
+    return train_loader, valid_loader, train_sampler, valid_sampler, datasets['train_num_words'], datasets['valid_num_words']
 
 
 def train():
     parser = ArgumentParser()
-    parser.add_argument("--dataset_path", type=str, default='imdb', help="'imdb' or a dict of splits paths.")
+    parser.add_argument("--dataset_path", type=str, default='wikitext-2', help="One of ('wikitext-103', 'wikitext-2') or a dict of splits paths.")
     parser.add_argument("--dataset_cache", type=str, default='./dataset_cache', help="Path or url of the dataset cache")
 
     parser.add_argument("--embed_dim", type=int, default=410, help="Embeddings dim")
@@ -153,7 +141,6 @@ def train():
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
     # Prepare metrics - note how we average distributed metrics using average_distributed_scalar
-    RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
     metrics = {"nll": Loss(torch.nn.CrossEntropyLoss(ignore_index=-1))}
     metrics.update({"average_nll": MetricsLambda(average_distributed_scalar, metrics["nll"], args)})
     metrics["average_ppl"] = MetricsLambda(math.exp, metrics["average_nll"])
@@ -163,23 +150,7 @@ def train():
 
     # On the main process: add progress bar, tensorboard, checkpoints and save model and configuration before we start to train
     if args.local_rank in [-1, 0]:
-        pbar = ProgressBar(persist=True)
-        pbar.attach(trainer, metric_names=["loss"])
-        evaluator.add_event_handler(Events.COMPLETED, lambda _: pbar.log_message("Validation: %s" % pformat(evaluator.state.metrics)))
-
-        tb_logger = TensorboardLogger(log_dir=None)
-        tb_logger.attach(trainer, log_handler=OutputHandler(tag="training", metric_names=["loss"]), event_name=Events.ITERATION_COMPLETED)
-        tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer), event_name=Events.ITERATION_STARTED)
-
-        @evaluator.on(Events.COMPLETED)  # Log evaluator metrics on tensorboard
-        def tb_log_metrics(engine):
-            for name in metrics.keys():
-                tb_logger.writer.add_scalar(name, engine.state.metrics[name], trainer.state.iteration)
-
-        checkpoint_handler = ModelCheckpoint(tb_logger.writer.log_dir, 'checkpoint', save_interval=1, n_saved=3)
-        trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'mymodel': getattr(model, 'module', model)})  # "getattr" take care of distributed encapsulation
-
-        torch.save(args, os.path.join(tb_logger.writer.log_dir, CONFIG_NAME))
+        add_logging_and_checkpoint_saving(trainer, evaluator, model, optimizer, args)
 
     # Run the training
     trainer.run(train_loader, max_epochs=args.n_epochs)

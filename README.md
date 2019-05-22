@@ -14,7 +14,7 @@ These improvements together with the wide availability and ease of integration o
 
 We will present an overview of modern transfer learning methods in NLP, how models are pre-trained, what information the representations they learn capture, and review examples and case studies on how these models can be integrated and adapted in downstream NLP tasks.
 
-## Codebase
+## Overview
 
 This codebase try to present in the simplest and most compact way a few of the major Transfer Learning technics which have emerged over the past years. The code in this repository doesn't pretend to be state-of-the-art even though effort has been made to ensure reasonnable performances and possible upgrade to the current state-of-the-art level.
 

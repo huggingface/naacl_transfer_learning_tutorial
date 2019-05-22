@@ -72,6 +72,7 @@ def train():
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay")
     parser.add_argument("--n_epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--eval_every", type=int, default=100, help="Evaluate every X steps (-1 => end of epoch)")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Accumulate gradient")
 
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda or cpu)")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training (-1: not distributed)")
@@ -120,11 +121,12 @@ def train():
         inputs, labels = (t.to(args.device) for t in batch)
         inputs = inputs.transpose(0, 1).contiguous()  # to shape [seq length, batch]
         _, (clf_loss, lm_loss) = model(inputs, clf_labels=labels, lm_labels=inputs)
-        loss = max(0, args.clf_loss_coef) * clf_loss + max(0, args.lm_loss_coef) * lm_loss
+        loss = (max(0, args.clf_loss_coef) * clf_loss + max(0, args.lm_loss_coef) * lm_loss) / args.gradient_accumulation_steps
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
-        optimizer.step()
-        optimizer.zero_grad()
+        if engine.state.iteration % args.gradient_accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
         return loss.item()
     trainer = Engine(update)
 

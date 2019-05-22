@@ -1,6 +1,8 @@
 # Code repository accompanying NAACL 2019 tutorial on "Transfer Learning in Natural Language Processing"
 
-The tutorial will be given on June 2 at NAACL 2019 in Minneapolis, MN, USA by Sebastian Ruder, Matthew Peters, Swabha Swayamdipta and Thomas Wolf.
+The tutorial will be given on June 2 at NAACL 2019 in Minneapolis, MN, USA by [Sebastian Ruder](http://ruder.io/), [Matthew Peters](https://www.linkedin.com/in/petersmatthew), [Swabha Swayamdipta](http://www.cs.cmu.edu/~sswayamd/index.html) and [Thomas Wolf](http://thomwolf.io/).
+
+Here is the [webpage](https://naacl2019.org/program/tutorials/) of NAACL tutorials for more information.
 
 ## Abstract
 
@@ -11,8 +13,6 @@ Over the last two years, the field of Natural Language Processing (NLP) has witn
 These improvements together with the wide availability and ease of integration of these methods are reminiscent of the factors that led to the success of pretrained word embeddings and ImageNet pretraining in computer vision, and indicate that these methods will likely become a common tool in the NLP landscape as well as an important research direction.
 
 We will present an overview of modern transfer learning methods in NLP, how models are pre-trained, what information the representations they learn capture, and review examples and case studies on how these models can be integrated and adapted in downstream NLP tasks.
-
-Here is the [webpage](https://naacl2019.org/program/tutorials/) of NAACL tutorials.
 
 ## Codebase
 

@@ -83,7 +83,7 @@ def add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimi
     # Save training configuration
     torch.save(args, os.path.join(tb_logger.writer.log_dir, CONFIG_NAME))
 
-    return checkpoint_handler, tb_logger.writer.log_dir
+    return checkpoint_handler, tb_logger
 
 
 def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cache=None, with_labels=False):

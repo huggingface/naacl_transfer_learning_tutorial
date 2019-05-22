@@ -150,14 +150,14 @@ def train():
 
     # On the main process: add progress bar, tensorboard, checkpoints and save model and configuration before we start to train
     if args.local_rank in [-1, 0]:
-        checkpoint_handler, log_dir = add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args)
+        checkpoint_handler, tb_logger = add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args)
 
     # Run the training
     trainer.run(train_loader, max_epochs=args.n_epochs)
 
     # On the main process: close tensorboard logger and rename the last checkpoint for easy re-loading
     if args.local_rank in [-1, 0] and args.n_epochs > 0:
-        os.rename(checkpoint_handler._saved[-1][1][-1], os.path.join(log_dir, WEIGHTS_NAME))  # TODO: PR in ignite to have better access to saved file paths (cleaner)
+        os.rename(checkpoint_handler._saved[-1][1][-1], os.path.join(tb_logger.writer.log_dir, WEIGHTS_NAME))  # TODO: PR in ignite to have better access to saved file paths (cleaner)
         tb_logger.close()
 
 

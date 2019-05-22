@@ -32,11 +32,11 @@ Currently the codebase comprises:
 
 ## Installation
 
-To be able to use this codebase, simply clone the Github repository and install the requirements like this:
+To use this codebase, simply clone the Github repository and install the requirements like this:
 
 ```bash
 git clone https://github.com/huggingface/naacl_transfer_learning_tutorial
-cd https://github.com/huggingface/naacl_transfer_learning_tutorial
+cd naacl_transfer_learning_tutorial
 pip install -r requirements.txt
 ```
 
@@ -57,8 +57,12 @@ python -m torch.distributed.launch --nproc_per_node 8 ./pretraining_train.py
 The pre-training script will:
 
 - download `wikitext-103` for pre-training (default),
+- instantiate a 50M parameters transformer model and train it for 50 epochs,
 - log the experiements in Tensorboard and in a folder under `./runs`,
 - save checkpoints in the log folder.
+
+Pretraining to a validation perplexity of ~29 on wikitext-103 will take about 15h on 8 V100 GPUs (can be stopped earlier).
+If you are interested in SOTA, there are a few reasons the validation perplexity is a bit higher than the equivalent Transformer-XL perplexity (around 24). The main reason is the use of an open vocabulary (sub-words for Bert tokenizer) instead of a closed vocabulary (see [this blog post by Sebastian Mielke](http://sjmielke.com/comparing-perplexities.htm) for some explanation.
 
 Various pre-training options are available, you can list them with:
 

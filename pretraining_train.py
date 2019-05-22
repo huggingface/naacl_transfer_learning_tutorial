@@ -26,7 +26,7 @@ def get_data_loaders(args, tokenizer):
     """ Prepare the dataloaders for training and evaluation """
     datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache)
 
-    logger.info("Convert to Tensor and reshape")
+    logger.info("Convert to Tensor and reshape in blocks of the transformer's input length")
     for split_name in ['train', 'valid']:
         tensor = torch.tensor(datasets[split_name], dtype=torch.long)
         num_sequences = (tensor.size(0) // args.num_max_positions) * args.num_max_positions

@@ -1,4 +1,5 @@
 torch
 pytorch-ignite
-pytorch-pretrained-bert
+pytorch-pretrained-bert  # for Bert tokenizer
 tensorboardX
+tensorflow  # for tensorboard

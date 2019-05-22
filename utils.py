@@ -58,7 +58,7 @@ def pad_dataset(dataset, padding=0):
 
 
 def add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimizer, args):
-    """ Add tensorboard logging, progress bar and checkpoint saving to a training engine and save training config. """
+    """ Add to training engine tensorboard logging, progress bar with average loss, checkpoint saving and save training config. """
     RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
     pbar = ProgressBar(persist=True)
     pbar.attach(trainer, metric_names=["loss"])

@@ -16,7 +16,7 @@ We will present an overview of modern transfer learning methods in NLP, how mode
 
 ## Codebase
 
-This codebase try to present in the simplest and shortest possible way a few of the major Transfer Learning technics which have emerged over the past years. The code in this repository doesn't pretend to be state-of-the-art even though effort has been made to ensure reasonnable performances and possible upgrade to the current state-of-the-art level.
+This codebase try to present in the simplest and most compact way a few of the major Transfer Learning technics which have emerged over the past years. The code in this repository doesn't pretend to be state-of-the-art even though effort has been made to ensure reasonnable performances and possible upgrade to the current state-of-the-art level.
 
 Special effort has been made to
 
@@ -25,10 +25,10 @@ Special effort has been made to
 
 Currently the codebase comprises:
 
-- a transformer model with a GPT-2-like architecture as the basic pretrained model,
-- a pretraining script to train this model with a language modeling objective on a selection of large datasets (wikitext-103, simplebooks-92) using distributed training if available,
-- several architectures based on the transformer model for fine-tuning (with a classification head on top, with adapters),
-- a fine-tuning script to fine-tune these architectures on a classification task (imdb).
+- [`pretraining_model.py`](./pretraining_model.py): a transformer model with a GPT-2-like architecture as the basic pretrained model,
+- [`pretraining_train.py`](./pretraining_train.py): a pretraining script to train this model with a language modeling objective on a selection of large datasets (wikitext-103, simplebooks-92) using distributed training if available,
+- [`finetuning_model.py`](./finetuning_model.py): several architectures based on the transformer model for fine-tuning (with a classification head on top, with adapters),
+- [`finetuning_train.py`](./finetuning_train.py): a fine-tuning script to fine-tune these architectures on a classification task (imdb).
 
 ## Installation
 

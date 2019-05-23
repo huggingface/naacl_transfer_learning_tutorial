@@ -6,9 +6,9 @@ Here is the [webpage](https://naacl2019.org/program/tutorials/) of NAACL tutoria
 
 ## Abstract
 
-The classic supervised machine learning paradigm is based on learning in isolation, a single predictive model for a task using a single dataset. This approach requires a large number of training examples and performs best for well-defined and narrow tasks. Transfer learning refers to a set of methods that extend this approach by leveraging data from additional domains or tasks to train a model with better generalization properties.
+The classic supervised machine learning paradigm is based on learning in isolation a single predictive model for a task using a single dataset. This approach requires a large number of training examples and performs best for well-defined and narrow tasks. Transfer learning refers to a set of methods that extend this approach by leveraging data from additional domains or tasks to train a model with better generalization properties.
 
-Over the last two years, the field of Natural Language Processing (NLP) has witnessed the emergence of several transfer learning methods and architectures which significantly improved upon the state-of-the-art on a wide range of NLP tasks.
+Over the last two years, the field of Natural Language Processing (NLP) has witnessed the emergence of several transfer learning methods and architectures, which significantly improved upon the state-of-the-art on a wide range of NLP tasks.
 
 These improvements together with the wide availability and ease of integration of these methods are reminiscent of the factors that led to the success of pretrained word embeddings and ImageNet pretraining in computer vision, and indicate that these methods will likely become a common tool in the NLP landscape as well as an important research direction.
 
@@ -16,19 +16,19 @@ We will present an overview of modern transfer learning methods in NLP, how mode
 
 ## Overview
 
-This codebase try to present in the simplest and most compact way a few of the major Transfer Learning technics which have emerged over the past years. The code in this repository doesn't pretend to be state-of-the-art even though effort has been made to ensure reasonnable performances and possible upgrade to the current state-of-the-art level.
+This codebase tries to present in the simplest and most compact way a few of the major Transfer Learning techniques, which have emerged over the past years. The code in this repository does not attempt to be state-of-the-art. However, effort has been made to achieve reasonable performance and with some modifications to be competitive with the current state of the art.
 
 Special effort has been made to
 
-- ensure the present code can be use as straightforwardly as possible, in particular by hosting pretrained models and datasets,
-- keep the present clodebase as compact and self-contained as possible to make it easy to manipulate and understand.
+- ensure the present code can be use as easily as possible, in particular by hosting pretrained models and datasets;
+- keep the present codebase as compact and self-contained as possible to make it easy to manipulate and understand.
 
 Currently the codebase comprises:
 
-- [`pretraining_model.py`](./pretraining_model.py): a transformer model with a GPT-2-like architecture as the basic pretrained model,
-- [`pretraining_train.py`](./pretraining_train.py): a pretraining script to train this model with a language modeling objective on a selection of large datasets (wikitext-103, simplebooks-92) using distributed training if available,
-- [`finetuning_model.py`](./finetuning_model.py): several architectures based on the transformer model for fine-tuning (with a classification head on top, with adapters),
-- [`finetuning_train.py`](./finetuning_train.py): a fine-tuning script to fine-tune these architectures on a classification task (imdb).
+- [`pretraining_model.py`](./pretraining_model.py): a transformer model with a GPT-2-like architecture as the basic pretrained model;
+- [`pretraining_train.py`](./pretraining_train.py): a pretraining script to train this model with a language modeling objective on a selection of large datasets (WikiText-103, SimpleBooks-92) using distributed training if available;
+- [`finetuning_model.py`](./finetuning_model.py): several architectures based on the transformer model for fine-tuning (with a classification head on top, with adapters);
+- [`finetuning_train.py`](./finetuning_train.py): a fine-tuning script to fine-tune these architectures on a classification task (IMDb).
 
 ## Installation
 
@@ -61,7 +61,7 @@ The pre-training script will:
 - log the experiements in Tensorboard and in a folder under `./runs`,
 - save checkpoints in the log folder.
 
-Pretraining to a validation perplexity of ~29 on wikitext-103 will take about 15h on 8 V100 GPUs (can be stopped earlier).
+Pretraining to a validation perplexity of ~29 on WikiText-103 will take about 15h on 8 V100 GPUs (can be stopped earlier).
 If you are interested in SOTA, there are a few reasons the validation perplexity is a bit higher than the equivalent Transformer-XL perplexity (around 24). The main reason is the use of an open vocabulary (sub-words for Bert tokenizer) instead of a closed vocabulary (see [this blog post by Sebastian Mielke](http://sjmielke.com/comparing-perplexities.htm) for some explanation.
 
 Various pre-training options are available, you can list them with:

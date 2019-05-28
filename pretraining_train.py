@@ -55,6 +55,10 @@ def train():
     parser.add_argument("--num_layers", type=int, default=16, help="NUmber of layers")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout")
     parser.add_argument("--initializer_range", type=float, default=0.02, help="Dropout")
+    parser.add_argument("--sinusoidal_embeddings", action="store_true", help="Use sinusoidal embeddings")
+
+    parser.add_argument("--mlm", action="store_true", help="Train with masked-language modeling loss instead of language modeling")
+    parser.add_argument("--mlm_probability", type=float, default=0.15, help="Ratio of tokens to mask for masked language modeling loss")
 
     parser.add_argument("--train_batch_size", type=int, default=8, help="Batch size for training")
     parser.add_argument("--valid_batch_size", type=int, default=8, help="Batch size for validation")
@@ -97,11 +101,24 @@ def train():
     logger.info("Prepare datasets")
     train_loader, val_loader, train_sampler, valid_sampler, train_num_words, valid_num_words = get_data_loaders(args, tokenizer)
 
+    # Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original
+    def mask_tokens(inputs):
+        labels = inputs.clone()
+        masked_indices = torch.bernoulli(torch.full(labels.shape, args.mlm_probability)).byte()
+        labels[~masked_indices] = -1                            # We only compute loss on masked tokens
+        indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8) * masked_indices.float()).byte()
+        inputs[indices_replaced] = tokenizer.vocab["[MASK]"]    # 80% of the time, replace masked tokens with [MASK]
+        indices_random = torch.bernoulli(torch.full(labels.shape, 0.5) * (masked_indices - indices_replaced).float()).byte()
+        random_words = torch.randint(args.num_embeddings, labels.shape)
+        inputs[indices_random] = random_words[indices_random]   # 10% of the time, replace masked tokens with random word
+        return inputs, labels
+
     # Training function and trainer
     def update(engine, batch):
         model.train()
-        batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-        logits, loss = model(batch, labels=batch)
+        inputs = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
+        inputs, labels = mask_tokens(inputs) if args.mlm else (inputs, inputs)  # Prepare masked input if we use masked LM
+        logits, loss = model(inputs, labels=labels)
         loss = loss / args.gradient_accumulation_steps
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
@@ -115,10 +132,11 @@ def train():
     def inference(engine, batch):
         model.eval()
         with torch.no_grad():
-            batch = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-            logits = model(batch)
-            shift_logits = logits[:-1]
-            shift_labels = batch[1:]
+            inputs = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
+            inputs, labels = mask_tokens(inputs) if args.mlm else (inputs, inputs)  # Prepare masked input if we use masked LM
+            logits = model(inputs)
+            shift_logits = logits[:-1] if not args.mlm else logits
+            shift_labels = labels[1:] if not args.mlm else labels
             return shift_logits.view(-1, logits.size(-1)), shift_labels.view(-1)
     evaluator = Engine(inference)
 
@@ -157,7 +175,6 @@ def train():
 
     # On the main process: close tensorboard logger and rename the last checkpoint for easy re-loading
     if args.local_rank in [-1, 0] and args.n_epochs > 0:
-        os.rename(checkpoint_handler._saved[-1][1][-1], os.path.join(tb_logger.writer.log_dir, WEIGHTS_NAME))  # TODO: PR in ignite to have better access to saved file paths (cleaner)
         tb_logger.close()
 
 

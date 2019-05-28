@@ -54,7 +54,7 @@ def get_data_loaders(args, tokenizer, trim_length, add_clf_token=None):
 def train():
     parser = ArgumentParser()
     parser.add_argument("--model_checkpoint", type=str, default=PRETRAINED_MODEL_URL, help="Path to the pretrained model checkpoint")
-    parser.add_argument("--dataset_path", type=str, default='imdb', help="'imdb' or a dict of splits paths.")
+    parser.add_argument("--dataset_path", type=str, default='imdb', help="'imdb', 'trec' or a dict of splits paths.")
     parser.add_argument("--dataset_cache", type=str, default='./dataset_cache_fine_tune', help="Path or url of the dataset cache")
 
     parser.add_argument("--finetuning_model_class", type=str, default="TransformerWithClfHead", help="Fine-tuning model class for the target task")

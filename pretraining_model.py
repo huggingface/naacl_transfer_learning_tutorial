@@ -27,7 +27,7 @@ class Transformer(nn.Module):
         for _ in range(num_layers):
             self.attentions.append(nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout))
             self.feed_forwards.append(nn.Sequential(nn.Linear(embed_dim, hidden_dim),
-                                                    nn.ReLU,
+                                                    nn.ReLU(),
                                                     nn.Linear(hidden_dim, embed_dim)))
             self.layer_norms_1.append(nn.LayerNorm(embed_dim, eps=1e-12))
             self.layer_norms_2.append(nn.LayerNorm(embed_dim, eps=1e-12))

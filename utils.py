@@ -29,6 +29,11 @@ DATASETS_URL = {
                      'labels': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.labels.txt",
                                 'valid': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/valid.labels.txt",
                                 'convert': {'pos': 0, 'neg': 1}}},
+    'trec':         {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.txt",
+                     'valid': "https://s3.amazonaws.com/datasets.huggingface.co/trec/valid.txt",
+                     'labels': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.labels.txt",
+                                'valid': "https://s3.amazonaws.com/datasets.huggingface.co/trec/valid.labels.txt",
+                                'convert': {'NUM': 0, 'LOC': 1, 'HUM': 2, 'DESC': 3, 'ENTY': 4, 'ABBR': 5}}},
     }
 
 PRETRAINED_MODEL_URL = "https://s3.amazonaws.com/models.huggingface.co/naacl-2019-tutorial/"

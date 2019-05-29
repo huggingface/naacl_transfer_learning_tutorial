@@ -44,8 +44,8 @@ class TransformerWithAdapters(Transformer):
 
 class TransformerWithClfHead(TransformerWithLMHead):
     def __init__(self, config, fine_tuning_config):
-        super().__init__(config)
         """ Transformer with a classification head and a language modeling head on top and optionally adapters. """
+        super().__init__(config)
         if fine_tuning_config.adapters_dim > 0:
             self.transformer = TransformerWithAdapters(fine_tuning_config.adapters_dim, config.embed_dim, config.hidden_dim,
                                                        config.num_embeddings, config.num_max_positions, config.num_heads,

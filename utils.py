@@ -54,9 +54,7 @@ def average_distributed_scalar(scalar, args):
 
 
 def pad_dataset(dataset, padding=0, to_left=True):
-    """ Pad a dataset (list of list) to the left or the right.
-        This could be optimized by defining a Dataset class and dynamically pad batches but this is easier to write.
-    """
+    """ Pad a dataset (list of list) to the left or the right. """
     max_l = max(len(x) for x in dataset)
     dataset = [(x if to_left else []) + [padding] * (max_l - len(x)) + ([] if to_left else x) for x in dataset]
     return dataset
@@ -112,7 +110,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
             with open(dataset_file, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
                 dataset[split_name] = [
-                    line.strip(' ').replace('\n', '[SEP]').replace('<unk>', '[UNK]') for line in tqdm(all_lines)]
+                    line.strip(' ').replace('\n', '[SEP]' if not with_labels else '').replace('<unk>', '[UNK]') for line in tqdm(all_lines)]
 
         # Download and read labels if needed, convert labels names to integers
         labels = {}

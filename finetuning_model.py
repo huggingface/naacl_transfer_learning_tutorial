@@ -54,11 +54,12 @@ class TransformerWithClfHead(TransformerWithLMHead):
         self.classification_head = nn.Linear(config.embed_dim, fine_tuning_config.num_classes)
         self.apply(self.init_weights)
 
-    def forward(self, x, lm_labels=None, clf_labels=None, padding_mask=None):
+    def forward(self, x, clf_tokens_mask, lm_labels=None, clf_labels=None, padding_mask=None):
         """ Input has shape [seq length, batch] """
         hidden_states = self.transformer(x, padding_mask)
         lm_logits = self.lm_head(hidden_states)
-        clf_logits = self.classification_head(hidden_states[-1])
+        hidden_states_clf_tokens = (hidden_states * clf_tokens_mask.unsqueeze(-1).float()).sum(dim=0)
+        clf_logits = self.classification_head(hidden_states_clf_tokens)
 
         loss = []
         if clf_labels is not None:

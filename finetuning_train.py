@@ -22,33 +22,27 @@ from utils import (get_and_tokenize_dataset, average_distributed_scalar, pad_dat
 
 logger = logging.getLogger(__file__)
 
-def get_data_loaders(args, tokenizer, max_length, add_clf_token=None):
+def get_data_loaders(args, tokenizer, max_length, clf_token):
     """ Prepare the dataloaders for training and evaluation.
         Add a classification token at the end of each sample if needed. """
     datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache, with_labels=True)
 
     logger.info("Convert to Tensor, pad and trim to trim_length")
-    tensor_datasets = {}
     for split_name in ['train', 'valid']:
-        dataset = pad_dataset(datasets[split_name], to_left=False)  # pad to the right (to keep the end of examples)
-        tensor = torch.tensor(dataset, dtype=torch.long)
-        trim_length = min(tensor.size(1), max_length) - 1
-        tensor = tensor.narrow(-1, -trim_length, trim_length)  # keep the end of examples in priority
-        if add_clf_token is not None:
-            tensor = torch.cat([tensor, torch.full_like(tensor[:, -1:], add_clf_token)], dim=-1)
+        datasets[split_name] = [x[:max_length-1] + [clf_token] for x in datasets[split_name]]  # trim dataset
+        datasets[split_name] = pad_dataset(datasets[split_name])  # pad dataset
+        tensor = torch.tensor(datasets[split_name], dtype=torch.long)
         labels = torch.tensor(datasets[split_name + '_labels'], dtype=torch.long)
-        tensor_datasets[split_name] = (tensor, labels)
+        datasets[split_name] = TensorDataset(tensor, labels)
 
     logger.info("Build train and validation dataloaders")
-    train_dataset = TensorDataset(*tensor_datasets['train'])
-    valid_dataset = TensorDataset(*tensor_datasets['valid'])
     train_sampler = torch.utils.data.distributed.DistributedSampler(datasets['train']) if args.distributed else None
     valid_sampler = torch.utils.data.distributed.DistributedSampler(datasets['valid']) if args.distributed else None
-    train_loader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size, shuffle=(not args.distributed))
-    valid_loader = DataLoader(valid_dataset, sampler=valid_sampler, batch_size=args.valid_batch_size, shuffle=False)
+    train_loader = DataLoader(datasets['train'], sampler=train_sampler, batch_size=args.train_batch_size, shuffle=(not args.distributed))
+    valid_loader = DataLoader(datasets['valid'], sampler=valid_sampler, batch_size=args.valid_batch_size, shuffle=False)
 
-    logger.info("Train dataset (Batch, Seq length): {}".format(train_dataset.tensors[0].shape))
-    logger.info("Valid dataset (Batch, Seq length): {}".format(valid_dataset.tensors[0].shape))
+    logger.info("Train dataset (Batch, Seq length): {}".format(datasets['train'].tensors[0].shape))
+    logger.info("Valid dataset (Batch, Seq length): {}".format(datasets['valid'].tensors[0].shape))
     return train_loader, valid_loader, train_sampler, valid_sampler
 
 
@@ -103,7 +97,9 @@ def train():
 
     logger.info("Load pretrained weigths from %s", os.path.join(args.model_checkpoint, WEIGHTS_NAME))
     state_dict = torch.load(cached_path(os.path.join(args.model_checkpoint, WEIGHTS_NAME)), map_location='cpu')
-    model.load_state_dict(state_dict, strict=False)
+    incompatible_keys = model.load_state_dict(state_dict, strict=False)
+    logger.info("Parameters discarded from the pretrained model: %s", incompatible_keys.unexpected_keys)
+    logger.info("Parameters added in the adaptation model: %s", incompatible_keys.missing_keys)
     model.tie_weights()
 
     optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -114,7 +110,7 @@ def train():
         model = DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
 
     logger.info("Prepare datasets")
-    loaders = get_data_loaders(args, tokenizer, pretraining_args.num_max_positions, add_clf_token=tokenizer.vocab['[CLS]'])
+    loaders = get_data_loaders(args, tokenizer, pretraining_args.num_max_positions, clf_token=tokenizer.vocab['[CLS]'])
     train_loader, val_loader, train_sampler, valid_sampler = loaders
 
     # Training function and trainer
@@ -122,7 +118,11 @@ def train():
         model.train()
         batch, labels = (t.to(args.device) for t in batch)
         inputs = batch.transpose(0, 1).contiguous()  # to shape [seq length, batch]
-        _, (clf_loss, lm_loss) = model(inputs, clf_labels=labels, lm_labels=inputs, padding_mask =(batch == tokenizer.vocab['[PAD]']))
+        _, (clf_loss, lm_loss) = model(inputs,
+                                       clf_tokens_mask=(inputs == tokenizer.vocab['[CLS]']),
+                                       clf_labels=labels,
+                                       lm_labels=inputs,
+                                       padding_mask=(batch == tokenizer.vocab['[PAD]']))
         loss = (max(0, args.clf_loss_coef) * clf_loss + max(0, args.lm_loss_coef) * lm_loss) / args.gradient_accumulation_steps
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
@@ -136,10 +136,13 @@ def train():
     def inference(engine, batch):
         model.eval()
         with torch.no_grad():
-            inputs, labels = (t.to(args.device) for t in batch)
-            inputs = inputs.transpose(0, 1).contiguous()  # to shape [seq length, batch]
-            lm_logits, clf_logits = model(inputs)
-            return clf_logits, labels
+            batch, labels = (t.to(args.device) for t in batch)
+            inputs = batch.transpose(0, 1).contiguous()  # to shape [seq length, batch]
+            lm_logits, clf_logits = model(inputs,
+                                          clf_tokens_mask=(inputs == tokenizer.vocab['[CLS]']),
+                                          padding_mask=(batch == tokenizer.vocab['[PAD]']))
+            lm_logits, clf_logits = model(inputs, padding_mask=(batch == tokenizer.vocab['[PAD]']))
+        return clf_logits, labels
     evaluator = Engine(inference)
 
     # Attach evaluation to trainer: we evaluate at the end of each epoch and every 'eval_every' iterations if needed

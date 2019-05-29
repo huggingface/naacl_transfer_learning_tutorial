@@ -107,17 +107,17 @@ def train():
         masked_indices = torch.bernoulli(torch.full(labels.shape, args.mlm_probability)).byte()
         labels[~masked_indices] = -1                            # We only compute loss on masked tokens
         indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8) * masked_indices.float()).byte()
-        inputs[indices_replaced] = tokenizer.vocab["[MASK]"]    # 80% of the time, replace masked tokens with [MASK]
+        inputs[indices_replaced] = tokenizer.vocab["[MASK]"]    # 80% of the time, replace masked input tokens with [MASK]
         indices_random = torch.bernoulli(torch.full(labels.shape, 0.5) * (masked_indices - indices_replaced).float()).byte()
-        random_words = torch.randint(args.num_embeddings, labels.shape)
-        inputs[indices_random] = random_words[indices_random]   # 10% of the time, replace masked tokens with random word
+        random_words = torch.randint(args.num_embeddings, labels.shape, dtype=torch.long, device=args.device)
+        inputs[indices_random] = random_words[indices_random]   # 10% of the time, replace masked input tokens with random word
         return inputs, labels
 
     # Training function and trainer
     def update(engine, batch):
         model.train()
         inputs = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-        inputs, labels = mask_tokens(inputs) if args.mlm else (inputs, inputs)  # Prepare masked input if we use masked LM
+        inputs, labels = mask_tokens(inputs) if args.mlm else (inputs, inputs)  # Prepare masked input/labels if we use masked LM
         logits, loss = model(inputs, labels=labels)
         loss = loss / args.gradient_accumulation_steps
         loss.backward()
@@ -133,7 +133,7 @@ def train():
         model.eval()
         with torch.no_grad():
             inputs = batch.transpose(0, 1).contiguous().to(args.device)  # to shape [seq length, batch]
-            inputs, labels = mask_tokens(inputs) if args.mlm else (inputs, inputs)  # Prepare masked input if we use masked LM
+            inputs, labels = mask_tokens(inputs) if args.mlm else (inputs, inputs)  # Prepare masked input/labels if we use masked LM
             logits = model(inputs)
             shift_logits = logits[:-1] if not args.mlm else logits
             shift_labels = labels[1:] if not args.mlm else labels

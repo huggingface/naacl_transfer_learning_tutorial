@@ -22,7 +22,7 @@ from utils import (get_and_tokenize_dataset, average_distributed_scalar, pad_dat
 
 logger = logging.getLogger(__file__)
 
-def get_data_loaders(args, tokenizer, trim_length, add_clf_token=None):
+def get_data_loaders(args, tokenizer, max_length, add_clf_token=None):
     """ Prepare the dataloaders for training and evaluation.
         Add a classification token at the end of each sample if needed. """
     datasets = get_and_tokenize_dataset(tokenizer, args.dataset_path, args.dataset_cache, with_labels=True)
@@ -32,9 +32,10 @@ def get_data_loaders(args, tokenizer, trim_length, add_clf_token=None):
     for split_name in ['train', 'valid']:
         dataset = pad_dataset(datasets[split_name], to_left=False)  # pad to the right (to keep the end of examples)
         tensor = torch.tensor(dataset, dtype=torch.long)
+        trim_length = min(tensor.size(1), max_length) - 1
         tensor = tensor.narrow(-1, -trim_length, trim_length)  # keep the end of examples in priority
         if add_clf_token is not None:
-            tensor = torch.cat([tensor[:, :-1], torch.full((len(tensor), 1), add_clf_token, dtype=torch.long)], dim=-1)
+            tensor = torch.cat([tensor, torch.full_like(tensor[:, -1:], add_clf_token)], dim=-1)
         labels = torch.tensor(datasets[split_name + '_labels'], dtype=torch.long)
         tensor_datasets[split_name] = (tensor, labels)
 
@@ -54,8 +55,8 @@ def get_data_loaders(args, tokenizer, trim_length, add_clf_token=None):
 def train():
     parser = ArgumentParser()
     parser.add_argument("--model_checkpoint", type=str, default=PRETRAINED_MODEL_URL, help="Path to the pretrained model checkpoint")
-    parser.add_argument("--dataset_path", type=str, default='imdb', help="'imdb', 'trec' or a dict of splits paths.")
-    parser.add_argument("--dataset_cache", type=str, default='./dataset_cache_fine_tune', help="Path or url of the dataset cache")
+    parser.add_argument("--dataset_path", type=str, default='trec', help="'imdb', 'trec' or a dict of splits paths.")
+    parser.add_argument("--dataset_cache", type=str, default='./dataset_cache_fine_tune_trec', help="Path or url of the dataset cache")
 
     parser.add_argument("--finetuning_model_class", type=str, default="TransformerWithClfHead", help="Fine-tuning model class for the target task")
     parser.add_argument("--num_classes", type=int, default=2, help="Number of classes for the target classification task")
@@ -73,6 +74,7 @@ def train():
     parser.add_argument("--n_epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--eval_every", type=int, default=100, help="Evaluate every X steps (-1 => end of epoch)")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Accumulate gradient")
+    parser.add_argument("--initializer_range", type=float, default=0.02, help="Normal initialization standard deviation")
 
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda or cpu)")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training (-1: not distributed)")
@@ -118,9 +120,9 @@ def train():
     # Training function and trainer
     def update(engine, batch):
         model.train()
-        inputs, labels = (t.to(args.device) for t in batch)
-        inputs = inputs.transpose(0, 1).contiguous()  # to shape [seq length, batch]
-        _, (clf_loss, lm_loss) = model(inputs, clf_labels=labels, lm_labels=inputs)
+        batch, labels = (t.to(args.device) for t in batch)
+        inputs = batch.transpose(0, 1).contiguous()  # to shape [seq length, batch]
+        _, (clf_loss, lm_loss) = model(inputs, clf_labels=labels, lm_labels=inputs, padding_mask =(batch == tokenizer.vocab['[PAD]']))
         loss = (max(0, args.clf_loss_coef) * clf_loss + max(0, args.lm_loss_coef) * lm_loss) / args.gradient_accumulation_steps
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)

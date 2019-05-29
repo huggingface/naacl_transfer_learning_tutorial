@@ -13,9 +13,11 @@ def create_sinusoidal_embeddings(embeds):
 
 
 class Transformer(nn.Module):
-    def __init__(self, embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout, sinusoidal_embeddings):
+    def __init__(self, embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout,
+                 sinusoidal_embeddings, causal=False):
         """ Transformer (GPT-2 architecture) """
         super().__init__()
+        self.causal = causal
         self.tokens_embeddings = nn.Embedding(num_embeddings, embed_dim)
         self.position_embeddings = nn.Embedding(num_max_positions, embed_dim)
         if sinusoidal_embeddings:
@@ -39,8 +41,10 @@ class Transformer(nn.Module):
         h = h + self.position_embeddings(positions).expand_as(h)
         h = self.dropout(h)
 
-        attn_mask = torch.full((len(x), len(x)), -float('Inf'), device=h.device, dtype=h.dtype)
-        attn_mask = torch.triu(attn_mask, diagonal=1)
+        attn_mask = None
+        if self.causal:
+            attn_mask = torch.full((len(x), len(x)), -float('Inf'), device=h.device, dtype=h.dtype)
+            attn_mask = torch.triu(attn_mask, diagonal=1)
         for layer_norm_1, attention, layer_norm_2, feed_forward in zip(self.layer_norms_1, self.attentions,
                                                                        self.layer_norms_2, self.feed_forwards):
             h = layer_norm_1(h)
@@ -62,7 +66,7 @@ class TransformerWithLMHead(nn.Module):
         self.config = config
         self.transformer = Transformer(config.embed_dim, config.hidden_dim, config.num_embeddings,
                                        config.num_max_positions, config.num_heads, config.num_layers,
-                                       config.dropout, config.sinusoidal_embeddings)
+                                       config.dropout, config.sinusoidal_embeddings, causal=not config.mlm)
         self.lm_head = nn.Linear(config.embed_dim, config.num_embeddings, bias=False)
         self.apply(self.init_weights)
         self.tie_weights()

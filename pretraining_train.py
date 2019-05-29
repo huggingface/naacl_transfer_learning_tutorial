@@ -54,7 +54,7 @@ def train():
     parser.add_argument("--num_heads", type=int, default=10, help="Number of heads")
     parser.add_argument("--num_layers", type=int, default=16, help="NUmber of layers")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout")
-    parser.add_argument("--initializer_range", type=float, default=0.02, help="Dropout")
+    parser.add_argument("--initializer_range", type=float, default=0.02, help="Normal initialization standard deviation")
     parser.add_argument("--sinusoidal_embeddings", action="store_true", help="Use sinusoidal embeddings")
 
     parser.add_argument("--mlm", action="store_true", help="Train with masked-language modeling loss instead of language modeling")

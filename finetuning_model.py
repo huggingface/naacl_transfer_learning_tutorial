@@ -46,16 +46,17 @@ class TransformerWithClfHead(TransformerWithLMHead):
     def __init__(self, config, fine_tuning_config):
         """ Transformer with a classification head and a language modeling head on top and optionally adapters. """
         super().__init__(config)
+        self.config = fine_tuning_config
         if fine_tuning_config.adapters_dim > 0:
             self.transformer = TransformerWithAdapters(fine_tuning_config.adapters_dim, config.embed_dim, config.hidden_dim,
                                                        config.num_embeddings, config.num_max_positions, config.num_heads,
-                                                       config.num_layers, config.dropout)
+                                                       config.num_layers, fine_tuning_config.dropout)
         self.classification_head = nn.Linear(config.embed_dim, fine_tuning_config.num_classes)
         self.apply(self.init_weights)
 
-    def forward(self, x, lm_labels=None, clf_labels=None):
+    def forward(self, x, lm_labels=None, clf_labels=None, padding_mask=None):
         """ Input has shape [seq length, batch] """
-        hidden_states = self.transformer(x)
+        hidden_states = self.transformer(x, padding_mask)
         lm_logits = self.lm_head(hidden_states)
         clf_logits = self.classification_head(hidden_states[-1])
 

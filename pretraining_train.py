@@ -106,9 +106,9 @@ def train():
         labels = inputs.clone()
         masked_indices = torch.bernoulli(torch.full(labels.shape, args.mlm_probability)).byte()
         labels[~masked_indices] = -1                            # We only compute loss on masked tokens
-        indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8) * masked_indices.float()).byte()
+        indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).byte() & masked_indices
         inputs[indices_replaced] = tokenizer.vocab["[MASK]"]    # 80% of the time, replace masked input tokens with [MASK]
-        indices_random = torch.bernoulli(torch.full(labels.shape, 0.5) * (masked_indices - indices_replaced).float()).byte()
+        indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).byte() & masked_indices & ~indices_replaced
         random_words = torch.randint(args.num_embeddings, labels.shape, dtype=torch.long, device=args.device)
         inputs[indices_random] = random_words[indices_random]   # 10% of the time, replace masked input tokens with random word
         return inputs, labels

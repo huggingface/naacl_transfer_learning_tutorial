@@ -24,16 +24,22 @@ DATASETS_URL = {
                           'valid': "https://s3.amazonaws.com/datasets.huggingface.co/simplebooks-2-raw/valid.txt"},
     'simplebooks-92-raw': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/simplebooks-92-raw/train.txt",
                            'valid': "https://s3.amazonaws.com/datasets.huggingface.co/simplebooks-92-raw/valid.txt"},
-    'imdb':         {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.txt",
-                     'valid': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/valid.txt",
-                     'labels': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.labels.txt",
-                                'valid': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/valid.labels.txt",
-                                'convert': {'pos': 0, 'neg': 1}}},
-    'trec':         {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.txt",
-                     'valid': "https://s3.amazonaws.com/datasets.huggingface.co/trec/valid.txt",
-                     'labels': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.labels.txt",
-                                'valid': "https://s3.amazonaws.com/datasets.huggingface.co/trec/valid.labels.txt",
-                                'convert': {'NUM': 0, 'LOC': 1, 'HUM': 2, 'DESC': 3, 'ENTY': 4, 'ABBR': 5}}},
+    'imdb': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.txt",
+             'test': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/test.txt"},
+    'trec': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.txt",
+             'test': "https://s3.amazonaws.com/datasets.huggingface.co/trec/test.txt"},
+    }
+
+DATASETS_LABELS_URL = {
+    'imdb': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.labels.txt",
+             'test': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/test.labels.txt"},
+    'trec': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.labels.txt",
+             'test': "https://s3.amazonaws.com/datasets.huggingface.co/trec/test.labels.txt"},
+    }
+
+DATASETS_LABELS_CONVERSION = {
+    'imdb':         {'pos': 0, 'neg': 1},
+    'trec':         {'NUM': 0, 'LOC': 1, 'HUM': 2, 'DESC': 3, 'ENTY': 4, 'ABBR': 5},
     }
 
 PRETRAINED_MODEL_URL = "https://s3.amazonaws.com/models.huggingface.co/naacl-2019-tutorial/"
@@ -71,9 +77,9 @@ def add_logging_and_checkpoint_saving(trainer, evaluator, metrics, model, optimi
     # Add tensorboard logging with training and evaluation metrics
     tb_logger = TensorboardLogger(log_dir=None)
     tb_logger.attach(trainer, log_handler=OutputHandler(tag="training", metric_names=[prefix + "loss"]),
-                     event_name=Events.ITERATION_COMPLETED)
+                              event_name=Events.ITERATION_COMPLETED)
     tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer),
-                     event_name=Events.ITERATION_STARTED)
+                              event_name=Events.ITERATION_STARTED)
     @evaluator.on(Events.COMPLETED)
     def tb_log_metrics(engine):
         for name in metrics.keys():
@@ -97,29 +103,31 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
     else:
         # If the dataset is in our list of DATASETS_URL, use this url, otherwise, look for 'train.txt' and 'valid.txt' files
         if dataset_dir in DATASETS_URL:
-            dataset_dir = DATASETS_URL[dataset_dir]
+            dataset_map = DATASETS_URL[dataset_dir]
         else:
-            dataset_dir = {'train': os.path.join(dataset_dir, 'train.txt'),
+            dataset_map = {'train': os.path.join(dataset_dir, 'train.txt'),
                            'valid': os.path.join(dataset_dir, 'valid.txt')}
 
         logger.info("Get dataset from %s", dataset_dir)
         # Download and read dataset and replace a few token for compatibility with the Bert tokenizer we are using
         dataset = {}
-        for split_name in ['train', 'valid']:
-            dataset_file = cached_path(dataset_dir[split_name])
+        for split_name in dataset_map.keys():
+            dataset_file = cached_path(dataset_map[split_name])
             with open(dataset_file, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
                 dataset[split_name] = [
-                    line.strip(' ').replace('\n', '[SEP]' if not with_labels else '').replace('<unk>', '[UNK]') for line in tqdm(all_lines)]
+                        line.strip(' ').replace('<unk>', '[UNK]').replace('\n', '[SEP]' if not with_labels else '')
+                        for line in tqdm(all_lines)]
 
-        # Download and read labels if needed, convert labels names to integers
+        # If we have labels, download and and convert labels in integers
         labels = {}
         if with_labels:
-            for split_name in ['train', 'valid']:
-                dataset_file = cached_path(dataset_dir['labels'][split_name])
+            label_conversion_map = DATASETS_LABELS_CONVERSION[dataset_dir]
+            for split_name in DATASETS_LABELS_URL[dataset_dir]:
+                dataset_file = cached_path(dataset_map['labels'][split_name])
                 with open(dataset_file, "r", encoding="utf-8") as f:
                     all_lines = f.readlines()
-                    labels[split_name] = [dataset_dir['labels']['convert'][line.strip()] for line in tqdm(all_lines)]
+                    labels[split_name] = [label_conversion_map[line.strip()] for line in tqdm(all_lines)]
 
         # Tokenize and encode the dataset
         logger.info("Tokenize and encode the dataset")

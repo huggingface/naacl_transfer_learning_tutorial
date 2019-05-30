@@ -87,8 +87,8 @@ class TransformerWithLMHead(nn.Module):
         logits = self.lm_head(hidden_states)
 
         if labels is not None:
-            shift_logits = logits[:-1] if not self.config.mlm else logits
-            shift_labels = labels[1:] if not self.config.mlm else labels
+            shift_logits = logits[:-1] if self.transformer.causal else logits
+            shift_labels = labels[1:] if self.transformer.causal else labels
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             return logits, loss

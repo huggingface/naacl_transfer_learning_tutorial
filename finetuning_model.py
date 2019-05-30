@@ -31,13 +31,13 @@ class TransformerWithAdapters(Transformer):
             h = self.layer_norms_1[l](h)
             x, _ = self.attentions[l](h, h, h, attn_mask=attn_mask, need_weights=False)
             x = self.dropout(x)
-            x = self.adapters_1[l](x)  # Add an adapter after attention
+            x = self.adapters_1[l](x) + x  # Add an adapter after attention
             h = x + h
 
             h = self.layer_norms_2[l](h)
             x = self.feed_forwards[l](h)
             x = self.dropout(x)
-            x = self.adapters_2[l](x)  # Add an adapter after feed-forward
+            x = self.adapters_2[l](x) + x  # Add an adapter after feed-forward
             h = x + h
         return h
 
@@ -50,7 +50,7 @@ class TransformerWithClfHead(TransformerWithLMHead):
         if fine_tuning_config.adapters_dim > 0:
             self.transformer = TransformerWithAdapters(fine_tuning_config.adapters_dim, config.embed_dim, config.hidden_dim,
                                                        config.num_embeddings, config.num_max_positions, config.num_heads,
-                                                       config.num_layers, fine_tuning_config.dropout)
+                                                       config.num_layers, fine_tuning_config.dropout, causal=not config.mlm)
         self.classification_head = nn.Linear(config.embed_dim, fine_tuning_config.num_classes)
         self.apply(self.init_weights)
 
@@ -58,8 +58,8 @@ class TransformerWithClfHead(TransformerWithLMHead):
         """ Input has shape [seq length, batch] """
         hidden_states = self.transformer(x, padding_mask)
         lm_logits = self.lm_head(hidden_states)
-        hidden_states_clf_tokens = (hidden_states * clf_tokens_mask.unsqueeze(-1).float()).sum(dim=0)
-        clf_logits = self.classification_head(hidden_states_clf_tokens)
+        clf_tokens_states = (hidden_states * clf_tokens_mask.unsqueeze(-1).float()).sum(dim=0)
+        clf_logits = self.classification_head(clf_tokens_states)
 
         loss = []
         if clf_labels is not None:
@@ -67,8 +67,8 @@ class TransformerWithClfHead(TransformerWithLMHead):
             loss.append(loss_fct(clf_logits.view(-1, clf_logits.size(-1)), clf_labels.view(-1)))
 
         if lm_labels is not None:
-            shift_logits = lm_logits[:-1]
-            shift_labels = lm_labels[1:]
+            shift_logits = lm_logits[:-1] if self.transformer.causal else lm_logits
+            shift_labels = lm_labels[1:] if self.transformer.causal else lm_labels
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
             loss.append(loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)))
 

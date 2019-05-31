@@ -162,6 +162,7 @@ def train():
     metrics = {"nll": Loss(torch.nn.CrossEntropyLoss(ignore_index=-1))}
     metrics.update({"average_nll": MetricsLambda(average_distributed_scalar, metrics["nll"], args)})
     metrics["average_ppl"] = MetricsLambda(math.exp, metrics["average_nll"])
+    # Let's convert sub-word perplexities in word perplexities. If you need details: http://sjmielke.com/comparing-perplexities.htm
     metrics["average_word_ppl"] = MetricsLambda(lambda x: math.exp(x * val_loader.dataset.numel() / valid_num_words), metrics["average_nll"])
     for name, metric in metrics.items():
         metric.attach(evaluator, name)

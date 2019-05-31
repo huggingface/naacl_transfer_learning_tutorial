@@ -118,12 +118,12 @@ def train():
         model.train()
         batch, labels = (t.to(args.device) for t in batch)
         inputs = batch.transpose(0, 1).contiguous()  # to shape [seq length, batch]
-        _, (clf_loss, lm_loss) = model(inputs,
-                                       clf_tokens_mask=(inputs == tokenizer.vocab['[CLS]']),
-                                       clf_labels=labels,
-                                       lm_labels=inputs,
-                                       padding_mask=(batch == tokenizer.vocab['[PAD]']))
-        loss = (max(0, args.clf_loss_coef) * clf_loss + max(0, args.lm_loss_coef) * lm_loss) / args.gradient_accumulation_steps
+        _, (clf_loss, lm_loss) = model(inputs, clf_tokens_mask=(inputs == tokenizer.vocab['[CLS]']),
+                                               clf_labels=labels,
+                                               lm_labels=inputs,
+                                               padding_mask=(batch == tokenizer.vocab['[PAD]']))
+        loss = (max(0, args.clf_loss_coef) * clf_loss
+              + max(0, args.lm_loss_coef)  * lm_loss) / args.gradient_accumulation_steps
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
         if engine.state.iteration % args.gradient_accumulation_steps == 0:
@@ -138,10 +138,8 @@ def train():
         with torch.no_grad():
             batch, labels = (t.to(args.device) for t in batch)
             inputs = batch.transpose(0, 1).contiguous()  # to shape [seq length, batch]
-            lm_logits, clf_logits = model(inputs,
-                                          clf_tokens_mask=(inputs == tokenizer.vocab['[CLS]']),
+            _, clf_logits = model(inputs, clf_tokens_mask=(inputs == tokenizer.vocab['[CLS]']),
                                           padding_mask=(batch == tokenizer.vocab['[PAD]']))
-            lm_logits, clf_logits = model(inputs, padding_mask=(batch == tokenizer.vocab['[PAD]']))
         return clf_logits, labels
     evaluator = Engine(inference)
 

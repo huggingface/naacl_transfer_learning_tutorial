@@ -1,6 +1,6 @@
 # Code repository accompanying NAACL 2019 tutorial on "Transfer Learning in Natural Language Processing"
 
-The tutorial will be given on June 2 at NAACL 2019 in Minneapolis, MN, USA by [Sebastian Ruder](http://ruder.io/), [Matthew Peters](https://www.linkedin.com/in/petersmatthew), [Swabha Swayamdipta](http://www.cs.cmu.edu/~sswayamd/index.html) and [Thomas Wolf](http://thomwolf.io/).
+The tutorial was given on June 2 at NAACL 2019 in Minneapolis, MN, USA by [Sebastian Ruder](http://ruder.io/), [Matthew Peters](https://www.linkedin.com/in/petersmatthew), [Swabha Swayamdipta](http://www.cs.cmu.edu/~sswayamd/index.html) and [Thomas Wolf](http://thomwolf.io/).
 
 Here is the [webpage](https://naacl2019.org/program/tutorials/) of NAACL tutorials for more information.
 
@@ -20,7 +20,7 @@ This codebase tries to present in the simplest and most compact way a few of the
 
 Special effort has been made to
 
-- ensure the present code can be use as easily as possible, in particular by hosting pretrained models and datasets;
+- ensure the present code can be used as easily as possible, in particular by hosting pretrained models and datasets;
 - keep the present codebase as compact and self-contained as possible to make it easy to manipulate and understand.
 
 Currently the codebase comprises:
@@ -62,7 +62,7 @@ The pre-training script will:
 - save checkpoints in the log folder.
 
 Pretraining to a validation perplexity of ~29 on WikiText-103 will take about 15h on 8 V100 GPUs (can be stopped earlier).
-If you are interested in SOTA, there are a few reasons the validation perplexity is a bit higher than the equivalent Transformer-XL perplexity (around 24). The main reason is the use of an open vocabulary (sub-words for Bert tokenizer) instead of a closed vocabulary (see [this blog post by Sebastian Mielke](http://sjmielke.com/comparing-perplexities.htm) for some explanation.
+If you are interested in SOTA, there are a few reasons the validation perplexity is a bit higher than the equivalent Transformer-XL perplexity (around 24). The main reason is the use of an open vocabulary (sub-words for Bert tokenizer) instead of a closed vocabulary (see [this blog post by Sebastian Mielke](http://sjmielke.com/comparing-perplexities.htm) for some explanation)
 
 Various pre-training options are available, you can list them with:
 
@@ -72,7 +72,7 @@ python ./pretraining_train.py --help
 
 ## Fine-tuning
 
-To fine-tune a pre-trained the transformer, run the `finetuning_train.py` script like this:
+To fine-tune the pre-trained transformer, run the `finetuning_train.py` script like this:
 
 ```bash
 python ./finetuning_train.py --model_checkpoint PATH-TO-YOUR-PRETRAINED-MODEL-FOLDER

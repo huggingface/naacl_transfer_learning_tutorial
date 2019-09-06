@@ -156,8 +156,4 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
     return encoded_dataset
 
 
-if __name__ == '__main__':
-    tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
-    get_and_tokenize_dataset(tokenizer, dataset_dir='imdb', dataset_cache=None, with_labels=True)
-
 

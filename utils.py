@@ -124,7 +124,7 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
         if with_labels:
             label_conversion_map = DATASETS_LABELS_CONVERSION[dataset_dir]
             for split_name in DATASETS_LABELS_URL[dataset_dir]:
-                dataset_file = cached_path(dataset_map['labels'][split_name])
+                dataset_file = cached_path(DATASETS_LABELS_URL[dataset_dir][split_name])
                 with open(dataset_file, "r", encoding="utf-8") as f:
                     all_lines = f.readlines()
                     labels[split_name] = [label_conversion_map[line.strip()] for line in tqdm(all_lines)]

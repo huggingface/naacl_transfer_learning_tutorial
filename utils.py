@@ -25,16 +25,16 @@ DATASETS_URL = {
     'simplebooks-92-raw': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/simplebooks-92-raw/train.txt",
                            'valid': "https://s3.amazonaws.com/datasets.huggingface.co/simplebooks-92-raw/valid.txt"},
     'imdb': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.txt",
-             'test': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/test.txt"},
+             'valid': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/valid.txt"},
     'trec': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.txt",
-             'test': "https://s3.amazonaws.com/datasets.huggingface.co/trec/test.txt"},
+             'valid': "https://s3.amazonaws.com/datasets.huggingface.co/trec/test.txt"},
     }
 
 DATASETS_LABELS_URL = {
     'imdb': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/train.labels.txt",
-             'test': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/test.labels.txt"},
+             'valid': "https://s3.amazonaws.com/datasets.huggingface.co/aclImdb/valid.labels.txt"},
     'trec': {'train': "https://s3.amazonaws.com/datasets.huggingface.co/trec/train.labels.txt",
-             'test': "https://s3.amazonaws.com/datasets.huggingface.co/trec/test.labels.txt"},
+             'valid': "https://s3.amazonaws.com/datasets.huggingface.co/trec/test.labels.txt"},
     }
 
 DATASETS_LABELS_CONVERSION = {
@@ -154,3 +154,10 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
             torch.save(encoded_dataset, dataset_cache)
 
     return encoded_dataset
+
+
+if __name__ == '__main__':
+    tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
+    get_and_tokenize_dataset(tokenizer, dataset_dir='imdb', dataset_cache=None, with_labels=True)
+
+

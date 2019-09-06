@@ -13,7 +13,7 @@ from ignite.metrics import RunningAverage
 from ignite.contrib.handlers import ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OptimizerParamsHandler, OutputHandler, TensorboardLogger
 
-from pytorch_pretrained_bert import cached_path
+from pytorch_pretrained_bert import cached_path, BertTokenizer
 
 DATASETS_URL = {
     'wikitext-2':   {'train': "https://s3.amazonaws.com/datasets.huggingface.co/wikitext-2/train.txt",
@@ -155,5 +155,9 @@ def get_and_tokenize_dataset(tokenizer, dataset_dir='wikitext-103', dataset_cach
 
     return encoded_dataset
 
+
+if __name__ == '__main__':
+    tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
+    get_and_tokenize_dataset(tokenizer, dataset_dir='imdb', dataset_cache=None, with_labels=True)
 
 

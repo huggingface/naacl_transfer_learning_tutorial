@@ -4,6 +4,12 @@ The tutorial was given on June 2 at NAACL 2019 in Minneapolis, MN, USA by [Sebas
 
 Here is the [webpage](https://naacl2019.org/program/tutorials/) of NAACL tutorials for more information.
 
+The slides for the tutorial can be found [here](https://tinyurl.com/NAACLTransfer).
+
+A Google Colab notebook with all the code for the tutorial can be found [here](https://tinyurl.com/NAACLTransferColab).
+
+The present repository can also be accessed with the following short url: https://tinyurl.com/NAACLTransferCode
+
 ## Abstract
 
 The classic supervised machine learning paradigm is based on learning in isolation a single predictive model for a task using a single dataset. This approach requires a large number of training examples and performs best for well-defined and narrow tasks. Transfer learning refers to a set of methods that extend this approach by leveraging data from additional domains or tasks to train a model with better generalization properties.

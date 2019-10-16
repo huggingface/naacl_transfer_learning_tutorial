@@ -4,9 +4,9 @@ The tutorial was given on June 2 at NAACL 2019 in Minneapolis, MN, USA by [Sebas
 
 Here is the [webpage](https://naacl2019.org/program/tutorials/) of NAACL tutorials for more information.
 
-The slides for the tutorial can be found [here](https://tinyurl.com/NAACLTransfer).
+The slides for the tutorial can be found here: https://tinyurl.com/NAACLTransfer.
 
-A Google Colab notebook with all the code for the tutorial can be found [here](https://tinyurl.com/NAACLTransferColab).
+A Google Colab notebook with all the code for the tutorial can be found here: https://tinyurl.com/NAACLTransferColab.
 
 The present repository can also be accessed with the following short url: https://tinyurl.com/NAACLTransferCode
 
